@@ -687,6 +687,38 @@ class _FixedDatetime(datetime):
         return cls._fixed
 
 
+class _FakeSession:
+    """A minimal stand-in for a real DB session, just enough for the
+    ScheduledRunLog dedup check/mark in daily_notifications.py's gates: no
+    prior run recorded, and add/commit are no-ops. Used by gate tests that
+    don't otherwise touch the database."""
+    def get(self, model, pk):
+        return None
+
+    def add(self, obj):
+        pass
+
+    def commit(self):
+        pass
+
+
+class _RecordingFakeSession:
+    """Like _FakeSession, but actually remembers what _mark_ran_today records
+    (keyed by ScheduledRunLog.job_name), so a second call within the same test
+    can observe "already sent today" -- exercises the dedup path for real."""
+    def __init__(self):
+        self._rows = {}
+
+    def get(self, model, pk):
+        return self._rows.get(pk)
+
+    def add(self, obj):
+        self._rows[obj.job_name] = obj
+
+    def commit(self):
+        pass
+
+
 def _run_today_digest_with_fixed_now(monkeypatch, fixed_dt):
     fixed = _FixedDatetime(
         fixed_dt.year, fixed_dt.month, fixed_dt.day,
@@ -694,7 +726,7 @@ def _run_today_digest_with_fixed_now(monkeypatch, fixed_dt):
     )
     _FixedDatetime._fixed = fixed
     monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
-    return daily_notifications.run_today_digest(session=None)
+    return daily_notifications.run_today_digest(_FakeSession())
 
 
 def test_today_digest_gate_skips_weekend(monkeypatch):
@@ -704,10 +736,12 @@ def test_today_digest_gate_skips_weekend(monkeypatch):
 
 
 def test_today_digest_gate_skips_off_hour(monkeypatch):
-    tuesday_2pm = datetime(2026, 7, 28, 14, 0, tzinfo=ZoneInfo("Europe/London"))
-    result = _run_today_digest_with_fixed_now(monkeypatch, tuesday_2pm)
+    """Before the target hour is still rejected regardless of GATE_WINDOW_HOURS
+    -- the widened window only extends how late a firing can be, never how early."""
+    tuesday_3am = datetime(2026, 7, 28, 3, 0, tzinfo=ZoneInfo("Europe/London"))
+    result = _run_today_digest_with_fixed_now(monkeypatch, tuesday_3am)
     assert result["skipped"] == "not target hour"
-    assert result["hour"] == 14
+    assert result["hour"] == 3
 
 
 def test_today_digest_gate_matches_target_hour_across_dst(monkeypatch):
@@ -726,12 +760,67 @@ def test_today_digest_gate_matches_target_hour_across_dst(monkeypatch):
 
         # SLACK_GENERAL_CHANNEL_ID unset in test env -> digest step no-ops
         # safely. We're only asserting the gate itself didn't short-circuit.
-        class _FakeSession:
-            pass
-
         result = daily_notifications.run_today_digest(_FakeSession())
         assert "skipped" not in result
         assert result["ok"] is True
+
+
+def test_today_digest_gate_accepts_a_late_firing_within_the_window(monkeypatch):
+    """Regression test: GitHub Actions' scheduler has been observed firing a
+    9am-targeted cron hours late -- a firing within GATE_WINDOW_HOURS of the
+    target should still send, not silently no-op."""
+    tuesday_2pm = datetime(2026, 7, 28, 14, 0, tzinfo=ZoneInfo("Europe/London"))  # 5 hours after 9am
+    result = _run_today_digest_with_fixed_now(monkeypatch, tuesday_2pm)
+    assert "skipped" not in result
+
+
+def test_today_digest_gate_rejects_a_firing_beyond_the_window(monkeypatch):
+    tuesday_9pm = datetime(2026, 7, 28, 21, 0, tzinfo=ZoneInfo("Europe/London"))  # 12 hours after 9am
+    result = _run_today_digest_with_fixed_now(monkeypatch, tuesday_9pm)
+    assert result["skipped"] == "not target hour"
+    assert result["hour"] == 21
+
+
+def test_today_digest_gate_skips_if_already_sent_today(monkeypatch):
+    """The ScheduledRunLog dedup check: a second gate pass on the same day
+    (e.g. the redundant BST/GMT cron firing, or a delayed retry) must not send
+    again, even though the hour is still within the widened window."""
+    tuesday_9am = datetime(2026, 7, 28, 9, 0, tzinfo=ZoneInfo("Europe/London"))
+    fixed = _FixedDatetime(
+        tuesday_9am.year, tuesday_9am.month, tuesday_9am.day,
+        tuesday_9am.hour, tuesday_9am.minute, tzinfo=tuesday_9am.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+
+    session = _RecordingFakeSession()
+    first = daily_notifications.run_today_digest(session)
+    assert "skipped" not in first
+
+    second = daily_notifications.run_today_digest(session)
+    assert second == {"ok": True, "skipped": "already sent today"}
+
+
+def test_scheduled_run_log_dedup_is_isolated_per_job(monkeypatch):
+    """Sending today's digest must not block that same day's unfilled
+    reminders (or vice versa) -- each job's ScheduledRunLog row is keyed by
+    its own job_name."""
+    tuesday_9am = datetime(2026, 7, 28, 9, 0, tzinfo=ZoneInfo("Europe/London"))
+    fixed = _FixedDatetime(
+        tuesday_9am.year, tuesday_9am.month, tuesday_9am.day,
+        tuesday_9am.hour, tuesday_9am.minute, tzinfo=tuesday_9am.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+    monkeypatch.setattr(daily_notifications.queries, "get_submitted_users", lambda session, week_start: [])
+    monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: [])
+
+    session = _RecordingFakeSession()
+    digest_result = daily_notifications.run_today_digest(session)
+    reminders_result = daily_notifications.run_unfilled_reminders(session)
+
+    assert "skipped" not in digest_result
+    assert "skipped" not in reminders_result
 
 
 def test_today_digest_force_bypasses_gate(monkeypatch):
@@ -756,7 +845,7 @@ def _run_unfilled_reminders_with_fixed_now(monkeypatch, fixed_dt):
     )
     _FixedDatetime._fixed = fixed
     monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
-    return daily_notifications.run_unfilled_reminders(session=None)
+    return daily_notifications.run_unfilled_reminders(_FakeSession())
 
 
 def test_unfilled_reminders_gate_skips_weekend(monkeypatch):
@@ -766,10 +855,12 @@ def test_unfilled_reminders_gate_skips_weekend(monkeypatch):
 
 
 def test_unfilled_reminders_gate_skips_off_hour(monkeypatch):
-    tuesday_2pm = datetime(2026, 7, 28, 14, 0, tzinfo=ZoneInfo("Europe/London"))
-    result = _run_unfilled_reminders_with_fixed_now(monkeypatch, tuesday_2pm)
+    """Before the target hour is still rejected regardless of GATE_WINDOW_HOURS
+    -- the widened window only extends how late a firing can be, never how early."""
+    tuesday_3am = datetime(2026, 7, 28, 3, 0, tzinfo=ZoneInfo("Europe/London"))
+    result = _run_unfilled_reminders_with_fixed_now(monkeypatch, tuesday_3am)
     assert result["skipped"] == "not target hour"
-    assert result["hour"] == 14
+    assert result["hour"] == 3
 
 
 def test_unfilled_reminders_gate_matches_target_hour_across_dst(monkeypatch):
@@ -789,9 +880,6 @@ def test_unfilled_reminders_gate_matches_target_hour_across_dst(monkeypatch):
 
         # roster empty -> reminder step no-ops safely. We're only asserting
         # the gate itself didn't short-circuit with a "skipped" result.
-        class _FakeSession:
-            pass
-
         monkeypatch.setattr(daily_notifications.queries, "get_submitted_users", lambda session, week_start: [])
 
         result = daily_notifications.run_unfilled_reminders(_FakeSession())
@@ -823,7 +911,7 @@ def _run_tomorrow_digest_with_fixed_now(monkeypatch, fixed_dt):
     )
     _FixedDatetime._fixed = fixed
     monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
-    return daily_notifications.run_tomorrow_digest(session=None)
+    return daily_notifications.run_tomorrow_digest(_FakeSession())
 
 
 def test_tomorrow_digest_gate_skips_weekend(monkeypatch):
@@ -907,7 +995,7 @@ def _run_next_week_reminder_with_fixed_now(monkeypatch, fixed_dt):
     )
     _FixedDatetime._fixed = fixed
     monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
-    return daily_notifications.run_next_week_reminder(session=None)
+    return daily_notifications.run_next_week_reminder(_FakeSession())
 
 
 def test_next_week_reminder_gate_skips_non_friday(monkeypatch):

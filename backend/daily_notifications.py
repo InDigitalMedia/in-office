@@ -2,9 +2,19 @@
 
 Triggered by POST /internal/slack/daily-digest, /internal/slack/unfilled-reminders,
 /internal/slack/tomorrow-digest, and /internal/slack/next-week-reminder, each called
-twice by a GitHub Actions cron (once per UTC-equivalent of the target London hour) so
-this can gate on "is it actually the target hour in London" without ever needing a
-cron expression edited for BST/GMT.
+twice by a GitHub Actions cron (once per UTC-equivalent of the target London hour).
+
+GitHub Actions' scheduled triggers are best-effort and can fire hours late (observed:
+a 9am-targeted cron not actually running until 3pm) or not fire at all on a given day.
+So each gate below does two things instead of a single exact-hour check:
+  1. Accepts any hour within GATE_WINDOW_HOURS of the target, not just the exact hour
+     -- catches a late firing while still refusing to send hours after the point a
+     digest/reminder would even make sense.
+  2. Checks/records a ScheduledRunLog row per job -- guarantees at most one real send
+     per job per day even if multiple firings (the redundant BST/GMT one, a delayed
+     retry, etc.) land inside that widened window on the same day.
+force=True (manual test runs) bypasses both entirely, and neither reads nor writes
+the run log, so testing never blocks or is blocked by the real scheduled send.
 """
 import logging
 import os
@@ -18,6 +28,7 @@ import roster
 import slack_client
 import slack_directory
 import slack_views
+from models import ScheduledRunLog
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +36,7 @@ LONDON_TZ = ZoneInfo("Europe/London")
 TARGET_HOUR = int(os.getenv("SLACK_DAILY_HOUR", "9"))
 AFTERNOON_TARGET_HOUR = int(os.getenv("SLACK_AFTERNOON_HOUR", "16"))
 FRIDAY_TARGET_HOUR = int(os.getenv("SLACK_FRIDAY_HOUR", "14"))
+GATE_WINDOW_HOURS = int(os.getenv("SLACK_GATE_WINDOW_HOURS", "8"))
 SLACK_GENERAL_CHANNEL_ID = os.getenv("SLACK_GENERAL_CHANNEL_ID")
 
 # Set to a Slack real name (e.g. "Cam Doherty") to restrict every outbound
@@ -37,6 +49,31 @@ TEST_MODE_USER_NAME = os.getenv("SLACK_TEST_MODE_USER_NAME")
 def monday_of(date_obj) -> str:
     monday = date_obj - timedelta(days=date_obj.weekday())
     return monday.strftime("%Y-%m-%d")
+
+
+def _within_gate_window(now_hour: int, target_hour: int) -> bool:
+    """True from target_hour up to (but not including) target_hour + GATE_WINDOW_HOURS
+    -- widened from an exact-hour match so a late-firing cron still gets through.
+    Never accepts an hour *before* target_hour, so the redundant early-side firing
+    from the BST/GMT double-fire cron still correctly misses this on its own --
+    the ScheduledRunLog check is what actually prevents a double-send within the
+    window, not this range by itself."""
+    return target_hour <= now_hour < target_hour + GATE_WINDOW_HOURS
+
+
+def _already_ran_today(session: Session, job_name: str, today_str: str) -> bool:
+    row = session.get(ScheduledRunLog, job_name)
+    return row is not None and row.last_run_date == today_str
+
+
+def _mark_ran_today(session: Session, job_name: str, today_str: str) -> None:
+    row = session.get(ScheduledRunLog, job_name)
+    if row:
+        row.last_run_date = today_str
+    else:
+        row = ScheduledRunLog(job_name=job_name, last_run_date=today_str)
+        session.add(row)
+    session.commit()
 
 
 def _test_mode_recipient(directory: dict) -> tuple[str, str] | None:
@@ -77,41 +114,51 @@ def _restrict_to_test_mode(matched: dict) -> dict:
 
 
 def run_today_digest(session: Session, force: bool = False) -> dict:
-    """Posts to the Neal Street channel at 9am London time announcing who's in
-    today. force=True bypasses the weekday/hour gate entirely -- used for
-    manual test runs (see trigger_today_digest in slack_routes.py) -- the
-    scheduled GitHub Actions cron never sets it."""
+    """Posts to the Neal Street channel around 9am London time announcing who's
+    in today. force=True bypasses the weekday/hour/already-sent gates entirely
+    -- used for manual test runs (see trigger_today_digest in slack_routes.py)
+    -- the scheduled GitHub Actions cron never sets it."""
     now = datetime.now(LONDON_TZ)
+    today_str = now.strftime("%Y-%m-%d")
 
     if not force:
         if now.weekday() >= 5:
             return {"ok": True, "skipped": "weekend"}
-        if now.hour != TARGET_HOUR:
+        if not _within_gate_window(now.hour, TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        if _already_ran_today(session, "today_digest", today_str):
+            return {"ok": True, "skipped": "already sent today"}
 
-    today_str = now.strftime("%Y-%m-%d")
     week_start = monday_of(now.date())
-
     neal_street_count = _post_neal_street_digest(session, week_start, today_str)
+
+    if not force:
+        _mark_ran_today(session, "today_digest", today_str)
     return {"ok": True, "neal_street_count": neal_street_count}
 
 
 def run_unfilled_reminders(session: Session, force: bool = False) -> dict:
-    """DMs a quick-fill prompt at 9am London to anyone who hasn't yet entered
-    this week's locations. force=True bypasses the weekday/hour gate entirely
-    -- used for manual test runs (see trigger_unfilled_reminders in
-    slack_routes.py) -- the scheduled GitHub Actions cron never sets it."""
+    """DMs a quick-fill prompt around 9am London to anyone who hasn't yet
+    entered this week's locations. force=True bypasses the weekday/hour/
+    already-sent gates entirely -- used for manual test runs (see
+    trigger_unfilled_reminders in slack_routes.py) -- the scheduled GitHub
+    Actions cron never sets it."""
     now = datetime.now(LONDON_TZ)
+    today_str = now.strftime("%Y-%m-%d")
 
     if not force:
         if now.weekday() >= 5:
             return {"ok": True, "skipped": "weekend"}
-        if now.hour != TARGET_HOUR:
+        if not _within_gate_window(now.hour, TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        if _already_ran_today(session, "unfilled_reminders", today_str):
+            return {"ok": True, "skipped": "already sent today"}
 
     week_start = monday_of(now.date())
     reminders_sent, unmatched = _send_quickfill_reminders(session, week_start)
 
+    if not force:
+        _mark_ran_today(session, "unfilled_reminders", today_str)
     return {
         "ok": True,
         "reminders_sent": reminders_sent,
@@ -134,24 +181,29 @@ def _post_neal_street_digest(session: Session, week_start: str, today_str: str) 
 
 
 def run_tomorrow_digest(session: Session, force: bool = False) -> dict:
-    """Posts to the Neal Street channel at 4pm London time. On Mon-Thu this
+    """Posts to the Neal Street channel around 4pm London time. On Mon-Thu this
     announces who's in tomorrow; on Friday, "tomorrow" would be Saturday (not
     useful), so it instead posts the whole of next week's schedule -- one
     action, branching on which day it's run, rather than a separate Friday-only
-    job. force=True bypasses the weekday/hour gate below for manual test runs
-    (see trigger_tomorrow_digest in slack_routes.py) -- the scheduled GitHub
-    Actions cron never sets it."""
+    job. force=True bypasses the weekday/hour/already-sent gates below for
+    manual test runs (see trigger_tomorrow_digest in slack_routes.py) -- the
+    scheduled GitHub Actions cron never sets it."""
     now = datetime.now(LONDON_TZ)
+    today_str = now.strftime("%Y-%m-%d")
 
     if not force:
         if now.weekday() >= 5:
             return {"ok": True, "skipped": "weekend"}
-        if now.hour != AFTERNOON_TARGET_HOUR:
+        if not _within_gate_window(now.hour, AFTERNOON_TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        if _already_ran_today(session, "tomorrow_digest", today_str):
+            return {"ok": True, "skipped": "already sent today"}
 
     if now.weekday() == 4:
         next_week_start = monday_of(now.date() + timedelta(days=7))
         neal_street_count = _post_neal_street_next_week_digest(session, next_week_start)
+        if not force:
+            _mark_ran_today(session, "tomorrow_digest", today_str)
         return {"ok": True, "neal_street_count": neal_street_count, "period": "next_week"}
 
     tomorrow = now.date() + timedelta(days=1)
@@ -159,6 +211,8 @@ def run_tomorrow_digest(session: Session, force: bool = False) -> dict:
     week_start = monday_of(tomorrow)
 
     neal_street_count = _post_neal_street_tomorrow_digest(session, week_start, tomorrow_str)
+    if not force:
+        _mark_ran_today(session, "tomorrow_digest", today_str)
     return {"ok": True, "neal_street_count": neal_street_count, "period": "tomorrow"}
 
 
@@ -194,24 +248,30 @@ def _post_neal_street_next_week_digest(session: Session, next_week_start: str) -
 
 
 def run_next_week_reminder(session: Session, force: bool = False) -> dict:
-    """Posts a quick-fill DM at 2pm London every Friday, prompting anyone who
-    hasn't yet entered next week's locations to do so ahead of time. Reuses the
-    same quick-fill flow as the same-week reminder -- "Same as last week" here
-    naturally means "same as this week", since it's relative to next week's
-    Monday. force=True bypasses the Friday/hour gate for manual test runs."""
+    """Posts a quick-fill DM around 2pm London every Friday, prompting anyone
+    who hasn't yet entered next week's locations to do so ahead of time.
+    Reuses the same quick-fill flow as the same-week reminder -- "Same as last
+    week" here naturally means "same as this week", since it's relative to
+    next week's Monday. force=True bypasses the Friday/hour/already-sent gates
+    for manual test runs."""
     now = datetime.now(LONDON_TZ)
+    today_str = now.strftime("%Y-%m-%d")
 
     if not force:
         if now.weekday() != 4:
             return {"ok": True, "skipped": "not friday"}
-        if now.hour != FRIDAY_TARGET_HOUR:
+        if not _within_gate_window(now.hour, FRIDAY_TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        if _already_ran_today(session, "next_week_reminder", today_str):
+            return {"ok": True, "skipped": "already sent today"}
 
     next_week_start = monday_of(now.date() + timedelta(days=7))
     reminders_sent, unmatched = _send_quickfill_reminders(
         session, next_week_start, header_text="📅 Time to plan next week! Let us know where you'll be."
     )
 
+    if not force:
+        _mark_ran_today(session, "next_week_reminder", today_str)
     return {
         "ok": True,
         "reminders_sent": reminders_sent,

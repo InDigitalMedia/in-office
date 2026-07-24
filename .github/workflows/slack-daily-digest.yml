@@ -2,12 +2,14 @@ name: Slack Daily Neal Street Digest
 
 on:
   schedule:
-    # 08:10 and 09:10 UTC covers 9:10am London time in both BST and GMT -- the
-    # endpoint itself checks the current London hour and no-ops on the firing
-    # that doesn't match, so this never needs editing for daylight saving.
-    # Deliberately 10 minutes after slack-unfilled-reminders.yml's 8:00/9:00,
-    # so the digest reflects anyone who just filled in from that reminder.
-    - cron: '10 8,9 * * 1-5'
+    # 08:15 and 09:15 UTC covers ~9:15am London time in both BST and GMT -- the
+    # endpoint itself checks the current London hour (via a widened window, see
+    # daily_notifications.py) and no-ops on the firing that doesn't match, so
+    # this never needs editing for daylight saving. Deliberately 10 minutes
+    # after slack-unfilled-reminders.yml's 8:05/9:05, so the digest reflects
+    # anyone who just filled in from that reminder. Also offset off :00, which
+    # sees the heaviest cross-platform GitHub Actions scheduler load.
+    - cron: '15 8,9 * * 1-5'
   workflow_dispatch:
     inputs:
       force:

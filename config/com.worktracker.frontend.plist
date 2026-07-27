@@ -6,9 +6,10 @@
     <string>com.worktracker.frontend</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/npm</string>
-        <string>run</string>
-        <string>dev</string>
+        <string>/bin/zsh</string>
+        <string>-l</string>
+        <string>-c</string>
+        <string>npm run dev</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/camdoherty/Library/CloudStorage/OneDrive-InDigitalMarketing/Documents/VSC/work-location-tracker/frontend</string>

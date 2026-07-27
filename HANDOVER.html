@@ -522,6 +522,7 @@
       <li><input type="checkbox" id="s6-0"><label for="s6-0">The Slack app itself (api.slack.com/apps) lives under whichever Slack account created it — <strong>this repo has no record of which account that is</strong>. Confirm who has admin access (the app's <strong>Collaborators</strong> page, or ask a workspace admin) and add the new owner</label></li>
       <li><input type="checkbox" id="s6-1"><label for="s6-1">Confirm the new owner has Render dashboard access to <code>SLACK_BOT_TOKEN</code>/<code>SLACK_SIGNING_SECRET</code>/<code>SLACK_SCHEDULER_SECRET</code> (should already be covered by Step 3, just flagging these specific secrets are easy to overlook)</label></li>
       <li><input type="checkbox" id="s6-2"><label for="s6-2">Confirm the new owner has access to this GitHub repo's <strong>Settings → Secrets and variables → Actions</strong>, where a copy of <code>SLACK_SCHEDULER_SECRET</code> is stored (Render and GitHub don't sync this value automatically)</label></li>
+      <li><input type="checkbox" id="s6-3"><label for="s6-3"><strong>cron-job.org</strong> is the live scheduler for all five <code>/internal/slack/...</code> jobs (GitHub Actions is now manual-test-only, see <code>docs/SLACK_INTEGRATION.md</code>). Confirm who owns the cron-job.org account and transfer/share access — without it, the daily digest and reminder jobs will silently stop firing. The new owner will also need <code>SLACK_SCHEDULER_SECRET</code>'s value if any of the five cron-job.org jobs ever need recreating</label></li>
     </ul>
   </section>
 

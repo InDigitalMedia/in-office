@@ -86,6 +86,7 @@ A Slack integration (`/enter-week` slash command, daily reminders, Neal Street d
 - [ ] The Slack app itself (api.slack.com/apps) lives under whichever Slack account created it — **this repo has no record of which account that is**. Confirm who has admin access (the app's **Collaborators** page, or ask a workspace admin) and add the new owner.
 - [ ] Confirm the new owner has Render dashboard access to `SLACK_BOT_TOKEN`/`SLACK_SIGNING_SECRET`/`SLACK_SCHEDULER_SECRET` (should already be covered by Step 3, just flagging these specific secrets are easy to overlook).
 - [ ] Confirm the new owner has access to this GitHub repo's **Settings → Secrets and variables → Actions**, where a copy of `SLACK_SCHEDULER_SECRET` is stored (Render and GitHub don't sync this value automatically).
+- [ ] **cron-job.org** is the live scheduler for all five `/internal/slack/...` jobs (GitHub Actions is now manual-test-only, see `docs/SLACK_INTEGRATION.md`). Confirm who owns the cron-job.org account and transfer/share access — without it, the daily digest and reminder jobs will silently stop firing. The new owner will also need `SLACK_SCHEDULER_SECRET`'s value if any of the five cron-job.org jobs ever need recreating.
 
 ## Not relevant — safe to ignore
 

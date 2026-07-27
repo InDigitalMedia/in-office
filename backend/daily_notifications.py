@@ -2,17 +2,19 @@
 
 Triggered by POST /internal/slack/daily-digest, /internal/slack/unfilled-reminders,
 /internal/slack/afternoon-unfilled-reminders, /internal/slack/tomorrow-digest, and
-/internal/slack/next-week-reminder, each called twice by a GitHub Actions cron (once
-per UTC-equivalent of the target London hour).
+/internal/slack/next-week-reminder, called on schedule by cron-job.org (an external
+cron-as-a-service). GitHub Actions previously did this via `schedule:` crons but was
+retired as the live scheduler after it was observed firing hours late (a 9am-targeted
+cron not actually running until 3pm) or not firing at all on a given day; the GitHub
+Actions workflows now only fire manually via workflow_dispatch, for testing.
 
-GitHub Actions' scheduled triggers are best-effort and can fire hours late (observed:
-a 9am-targeted cron not actually running until 3pm) or not fire at all on a given day.
-So each gate below does two things instead of a single exact-hour check:
+Any cron trigger source is treated as best-effort/at-least-once, not exactly-once, so
+each gate below does two things instead of a single exact-hour check:
   1. Accepts any hour within GATE_WINDOW_HOURS of the target, not just the exact hour
      -- catches a late firing while still refusing to send hours after the point a
      digest/reminder would even make sense.
   2. Checks/records a ScheduledRunLog row per job -- guarantees at most one real send
-     per job per day even if multiple firings (the redundant BST/GMT one, a delayed
+     per job per day even if multiple firings (a redundant BST/GMT one, a delayed
      retry, etc.) land inside that widened window on the same day.
 force=True (manual test runs) bypasses both entirely, and neither reads nor writes
 the run log, so testing never blocks or is blocked by the real scheduled send.
@@ -23,6 +25,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
+from sqlalchemy import text
 
 import queries
 import roster
@@ -61,6 +64,21 @@ def _within_gate_window(now_hour: int, target_hour: int) -> bool:
     the ScheduledRunLog check is what actually prevents a double-send within the
     window, not this range by itself."""
     return target_hour <= now_hour < target_hour + GATE_WINDOW_HOURS
+
+
+def _acquire_job_lock(session: Session, job_name: str) -> None:
+    """Serializes concurrent runs of the same job for the rest of this transaction
+    (auto-released on commit/rollback), so two near-simultaneous cron firings for
+    the same job_name can't both pass the _already_ran_today check below before
+    either has committed _mark_ran_today -- without this, the check-then-act gap
+    between them is a race that could let both firings send. No-op on SQLite
+    (single-writer already, and this is a dev-only fallback DB)."""
+    try:
+        is_postgres = hasattr(session, "bind") and "postgresql" in str(session.bind.url).lower()
+    except Exception:
+        is_postgres = False
+    if is_postgres:
+        session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:job_name))"), {"job_name": job_name})
 
 
 def _already_ran_today(session: Session, job_name: str, today_str: str) -> bool:
@@ -128,6 +146,7 @@ def run_today_digest(session: Session, force: bool = False) -> dict:
             return {"ok": True, "skipped": "weekend"}
         if not _within_gate_window(now.hour, TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        _acquire_job_lock(session, "today_digest")
         if _already_ran_today(session, "today_digest", today_str):
             return {"ok": True, "skipped": "already sent today"}
 
@@ -153,6 +172,7 @@ def run_unfilled_reminders(session: Session, force: bool = False) -> dict:
             return {"ok": True, "skipped": "weekend"}
         if not _within_gate_window(now.hour, TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        _acquire_job_lock(session, "unfilled_reminders")
         if _already_ran_today(session, "unfilled_reminders", today_str):
             return {"ok": True, "skipped": "already sent today"}
 
@@ -184,6 +204,7 @@ def run_afternoon_unfilled_reminders(session: Session, force: bool = False) -> d
             return {"ok": True, "skipped": "weekend"}
         if not _within_gate_window(now.hour, AFTERNOON_UNFILLED_TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        _acquire_job_lock(session, "afternoon_unfilled_reminders")
         if _already_ran_today(session, "afternoon_unfilled_reminders", today_str):
             return {"ok": True, "skipped": "already sent today"}
 
@@ -231,6 +252,7 @@ def run_tomorrow_digest(session: Session, force: bool = False) -> dict:
             return {"ok": True, "skipped": "weekend"}
         if not _within_gate_window(now.hour, AFTERNOON_TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        _acquire_job_lock(session, "tomorrow_digest")
         if _already_ran_today(session, "tomorrow_digest", today_str):
             return {"ok": True, "skipped": "already sent today"}
 
@@ -298,6 +320,7 @@ def run_next_week_reminder(session: Session, force: bool = False) -> dict:
             return {"ok": True, "skipped": "not friday"}
         if not _within_gate_window(now.hour, FRIDAY_TARGET_HOUR):
             return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        _acquire_job_lock(session, "next_week_reminder")
         if _already_ran_today(session, "next_week_reminder", today_str):
             return {"ok": True, "skipped": "already sent today"}
 

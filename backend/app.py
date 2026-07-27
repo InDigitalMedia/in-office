@@ -410,52 +410,6 @@ def check_existing_entries(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/migrate-locations", dependencies=[Depends(require_admin)])
-def migrate_locations(session: Session = Depends(get_session)):
-    """Migrate old location names to new ones."""
-    logger.info("Starting location migration")
-    
-    # Mapping old names to new names
-    migration_map = {
-        "Office": "Neal Street",
-        "Client": "Client Office", 
-        "Off": "Holiday"
-        # PTO entries will need to be handled separately or deleted
-    }
-    
-    try:
-        updated_count = 0
-
-        for old_name, new_name in migration_map.items():
-            result = session.execute(
-                text("UPDATE entry SET location = :new_name WHERE location = :old_name"),
-                {"new_name": new_name, "old_name": old_name},
-            )
-            updated_count += result.rowcount or 0
-
-        session.commit()
-
-        # Delete PTO entries since we removed that option
-        result = session.execute(
-            text("DELETE FROM entry WHERE location = :old_name"), {"old_name": "PTO"}
-        )
-        deleted_count = result.rowcount or 0
-
-        session.commit()
-
-        logger.info(f"Migration complete: {updated_count} updated, {deleted_count} PTO entries deleted")
-        return {
-            "ok": True, 
-            "updated": updated_count,
-            "deleted_pto": deleted_count,
-            "message": "Migration complete"
-        }
-    except Exception as e:
-        session.rollback()
-        logger.error(f"Migration error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/admin/debug", dependencies=[Depends(require_admin)])
 def debug_database(session: Session = Depends(get_session)):
     """Debug endpoint to check database contents and connection."""

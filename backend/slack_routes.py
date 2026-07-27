@@ -83,43 +83,52 @@ def _prefill_entry_from_row(row) -> dict:
 
 
 def _build_prefill(session: Session, user_key: str, week_start: str) -> dict:
-    """{offset: {"location": str, "client_choice": str|None, "text": str}} for
-    this user's existing full-day entries this week, for pre-filling the modal.
-    Split-day entries are skipped (full-day-only scope)."""
+    """{offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}}
+    for this user's existing entries this week, for pre-filling the modal --
+    split days are fully represented (checkbox pre-checked, both halves
+    pre-filled), same as full days."""
     start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
-    prefill = {}
+    prefill: dict = {}
     for row in queries.get_week_entries(session, week_start):
         if row.user_name.strip().lower() != user_key:
             continue
-        if row.time_period:
-            continue  # split day -- not representable in the full-day-only modal
         row_date = datetime.strptime(row.date, "%Y-%m-%d").date()
         offset = (row_date - start_date).days
         if not (0 <= offset <= 4):
             continue
-        prefill[offset] = _prefill_entry_from_row(row)
+
+        day = prefill.setdefault(offset, {"split": False, "full": {}, "morning": {}, "afternoon": {}})
+        if row.time_period == "Morning":
+            day["split"] = True
+            day["morning"] = _prefill_entry_from_row(row)
+        elif row.time_period == "Afternoon":
+            day["split"] = True
+            day["afternoon"] = _prefill_entry_from_row(row)
+        else:
+            day["full"] = _prefill_entry_from_row(row)
     return prefill
 
 
-def _build_prefill_from_last_week(session: Session, user_key: str, week_start: str) -> tuple[dict, bool]:
+def _build_prefill_from_last_week(session: Session, user_key: str, week_start: str) -> dict:
     """Same prefill shape as _build_prefill, but sourced from last week's
-    full-day entries instead of this week's -- used to pre-populate the
-    "Same as last week" confirmation modal so the user can review before
-    saving, rather than saving blind. Returns (prefill, skipped_split) --
-    skipped_split flags that a split day last week couldn't be represented in
-    the full-day-only modal and was left blank."""
+    entries instead of this week's -- used to pre-populate the "Same as last
+    week" confirmation modal so the user can review before saving, rather
+    than saving blind. Split days are carried over just like full days."""
     last_week = queries.get_last_week_entries_for_user(session, user_key, week_start)
-    prefill = {}
-    skipped_split = False
+    prefill: dict = {}
     for offset, slot in last_week.items():
         if slot["morning"] or slot["afternoon"]:
-            skipped_split = True
+            day = {"split": True, "full": {}, "morning": {}, "afternoon": {}}
+            if slot["morning"]:
+                day["morning"] = _prefill_entry_from_row(slot["morning"])
+            if slot["afternoon"]:
+                day["afternoon"] = _prefill_entry_from_row(slot["afternoon"])
+        elif slot["full"]:
+            day = {"split": False, "full": _prefill_entry_from_row(slot["full"]), "morning": {}, "afternoon": {}}
+        else:
             continue
-        full = slot["full"]
-        if not full:
-            continue
-        prefill[offset] = _prefill_entry_from_row(full)
-    return prefill, skipped_split
+        prefill[offset] = day
+    return prefill
 
 
 def _current_week_start() -> str:
@@ -209,20 +218,18 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
 
     if action_id == slack_views.ACTION_SAME_AS_LAST_WEEK:
         # Opens the same modal used everywhere else, pre-filled from last
-        # week's entries, so the user reviews and explicitly submits rather
-        # than having a week saved without ever seeing it -- the normal
-        # view_submission path (upsert + confirmation DM + week summary)
-        # handles the rest exactly as it does for "Fill in week".
-        prefill, skipped_split = _build_prefill_from_last_week(session, user_key, week_start)
+        # week's entries (split days included), so the user reviews and
+        # explicitly submits rather than having a week saved without ever
+        # seeing it -- the normal view_submission path (upsert + confirmation
+        # DM + week summary) handles the rest exactly as it does for "Fill in
+        # week".
+        prefill = _build_prefill_from_last_week(session, user_key, week_start)
         if not prefill:
             if response_url:
-                slack_client.respond_via_response_url(response_url, "No matching full-day entries found last week -- try Fill in week instead.")
+                slack_client.respond_via_response_url(response_url, "No matching entries found last week -- try Fill in week instead.")
             return Response(status_code=200)
 
-        note = None
-        if skipped_split:
-            note = "_A split (half) day from last week couldn't be pre-filled -- set it manually below if needed._"
-        view = slack_views.build_week_modal(week_start, resolved_name, prefill, title="Same as last week", note=note)
+        view = slack_views.build_week_modal(week_start, resolved_name, prefill, title="Same as last week")
         slack_client.open_view(trigger_id, view)
         return Response(status_code=200)
 

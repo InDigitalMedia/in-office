@@ -1,0 +1,23 @@
+name: Slack Afternoon Unfilled Reminders
+
+on:
+  # Real scheduling moved to cron-job.org (hits
+  # /internal/slack/afternoon-unfilled-reminders directly, ~2pm London) --
+  # GitHub Actions' scheduler was unreliable (observed firing hours late, or
+  # not at all). workflow_dispatch kept for manual force-testing.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass the weekday/2pm-London gate and send for real right now'
+        type: boolean
+        default: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call scheduler endpoint
+        run: |
+          curl -sS -f --retry 3 --retry-delay 5 --max-time 90 \
+            -X POST "https://api-a8uz.onrender.com/internal/slack/afternoon-unfilled-reminders?force=${{ github.event.inputs.force || 'false' }}" \
+            -H "X-Scheduler-Secret: ${{ secrets.SLACK_SCHEDULER_SECRET }}"

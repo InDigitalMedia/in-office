@@ -1091,6 +1091,86 @@ def test_unfilled_reminders_force_bypasses_gate(monkeypatch):
     assert result["ok"] is True
 
 
+# --- daily_notifications afternoon-unfilled-reminders gate --------------------
+
+def _run_afternoon_unfilled_reminders_with_fixed_now(monkeypatch, fixed_dt):
+    fixed = _FixedDatetime(
+        fixed_dt.year, fixed_dt.month, fixed_dt.day,
+        fixed_dt.hour, fixed_dt.minute, tzinfo=fixed_dt.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+    return daily_notifications.run_afternoon_unfilled_reminders(_FakeSession())
+
+
+def test_afternoon_unfilled_reminders_gate_skips_weekend(monkeypatch):
+    saturday_2pm = datetime(2026, 7, 25, 14, 0, tzinfo=ZoneInfo("Europe/London"))  # a Saturday
+    result = _run_afternoon_unfilled_reminders_with_fixed_now(monkeypatch, saturday_2pm)
+    assert result == {"ok": True, "skipped": "weekend"}
+
+
+def test_afternoon_unfilled_reminders_gate_skips_off_hour(monkeypatch):
+    """Before the target hour is still rejected regardless of GATE_WINDOW_HOURS
+    -- the widened window only extends how late a firing can be, never how early."""
+    tuesday_3am = datetime(2026, 7, 28, 3, 0, tzinfo=ZoneInfo("Europe/London"))
+    result = _run_afternoon_unfilled_reminders_with_fixed_now(monkeypatch, tuesday_3am)
+    assert result["skipped"] == "not target hour"
+    assert result["hour"] == 3
+
+
+def test_afternoon_unfilled_reminders_gate_passes_at_2pm(monkeypatch):
+    monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: [])
+    monkeypatch.setattr(daily_notifications.queries, "get_submitted_users", lambda session, week_start: [])
+    tuesday_2pm = datetime(2026, 7, 28, 14, 0, tzinfo=ZoneInfo("Europe/London"))
+    result = _run_afternoon_unfilled_reminders_with_fixed_now(monkeypatch, tuesday_2pm)
+    assert "skipped" not in result
+    assert result["ok"] is True
+
+
+def test_afternoon_unfilled_reminders_force_bypasses_gate(monkeypatch):
+    monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: [])
+    monkeypatch.setattr(daily_notifications.queries, "get_submitted_users", lambda session, week_start: [])
+    saturday_9am = datetime(2026, 7, 25, 9, 0, tzinfo=ZoneInfo("Europe/London"))  # a Saturday
+    fixed = _FixedDatetime(
+        saturday_9am.year, saturday_9am.month, saturday_9am.day,
+        saturday_9am.hour, saturday_9am.minute, tzinfo=saturday_9am.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+    result = daily_notifications.run_afternoon_unfilled_reminders(session=None, force=True)
+    assert "skipped" not in result
+    assert result["ok"] is True
+
+
+def test_afternoon_unfilled_reminders_has_its_own_dedup_key_from_the_morning_job(monkeypatch):
+    """Sending the morning reminder must not block the afternoon nudge on the
+    same day, and vice versa -- they're deliberately separate ScheduledRunLog
+    entries so both can go out once each, same day."""
+    tuesday_9am = datetime(2026, 7, 28, 9, 0, tzinfo=ZoneInfo("Europe/London"))
+    fixed = _FixedDatetime(
+        tuesday_9am.year, tuesday_9am.month, tuesday_9am.day,
+        tuesday_9am.hour, tuesday_9am.minute, tzinfo=tuesday_9am.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+    monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: [])
+    monkeypatch.setattr(daily_notifications.queries, "get_submitted_users", lambda session, week_start: [])
+
+    session = _RecordingFakeSession()
+    morning_result = daily_notifications.run_unfilled_reminders(session)
+    assert "skipped" not in morning_result
+
+    tuesday_2pm = datetime(2026, 7, 28, 14, 0, tzinfo=ZoneInfo("Europe/London"))
+    fixed2 = _FixedDatetime(
+        tuesday_2pm.year, tuesday_2pm.month, tuesday_2pm.day,
+        tuesday_2pm.hour, tuesday_2pm.minute, tzinfo=tuesday_2pm.tzinfo,
+    )
+    _FixedDatetime._fixed = fixed2
+    monkeypatch.setattr(daily_notifications, "datetime", _FixedDatetime)
+    afternoon_result = daily_notifications.run_afternoon_unfilled_reminders(session)
+    assert "skipped" not in afternoon_result
+
+
 # --- daily_notifications tomorrow-digest gate ---------------------------------
 
 def _run_tomorrow_digest_with_fixed_now(monkeypatch, fixed_dt):

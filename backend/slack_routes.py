@@ -306,6 +306,11 @@ def trigger_unfilled_reminders(force: bool = False, session: Session = Depends(g
     return daily_notifications.run_unfilled_reminders(session, force=force)
 
 
+@slack_router.post("/internal/slack/afternoon-unfilled-reminders", dependencies=[Depends(require_scheduler)])
+def trigger_afternoon_unfilled_reminders(force: bool = False, session: Session = Depends(get_session)):
+    return daily_notifications.run_afternoon_unfilled_reminders(session, force=force)
+
+
 @slack_router.post("/internal/slack/tomorrow-digest", dependencies=[Depends(require_scheduler)])
 def trigger_tomorrow_digest(force: bool = False, session: Session = Depends(get_session)):
     return daily_notifications.run_tomorrow_digest(session, force=force)

@@ -1,6 +1,6 @@
 """The Slack scheduled jobs: Neal Street digests to a channel + quick-fill DM reminders.
 
-Triggered by POST /internal/slack/daily-digest, /internal/slack/unfilled-reminders,
+Triggered by POST /internal/slack/daily-digest, /internal/slack/morning-unfilled-reminders,
 /internal/slack/afternoon-unfilled-reminders, /internal/slack/tomorrow-digest, and
 /internal/slack/next-week-reminder, called on schedule by cron-job.org (an external
 cron-as-a-service). GitHub Actions previously did this via `schedule:` crons but was

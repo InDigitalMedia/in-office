@@ -59,6 +59,10 @@ class WeekSummaryResponse(BaseModel):
     entries: list[SummaryRow]
 
 
+class AdminTabPasswordRequest(BaseModel):
+    password: str
+
+
 class EntryResponse(SQLModel):
     id: int
     user_name: str

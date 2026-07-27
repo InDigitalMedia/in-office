@@ -36,3 +36,5 @@ services:
         sync: false
       - key: SLACK_AFTERNOON_UNFILLED_HOUR
         sync: false
+      - key: ADMIN_TAB_PASSWORD
+        sync: false

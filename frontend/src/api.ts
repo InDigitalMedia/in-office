@@ -84,3 +84,15 @@ export async function getUsersForWeek(
 export async function getAllUsers(): Promise<{ users: string[] }> {
   return apiCall<{ users: string[] }>('/summary/all-users')
 }
+
+export async function verifyAdminTabPassword(password: string): Promise<boolean> {
+  try {
+    const result = await apiCall<{ ok: boolean }>('/admin/verify-tab-password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    })
+    return result.ok
+  } catch {
+    return false
+  }
+}

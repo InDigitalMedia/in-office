@@ -242,6 +242,7 @@ def _post_neal_street_next_week_digest(session: Session, next_week_start: str) -
         next_week_start,
         directory,
         header_text=":wave: Good afternoon everyone! Here's who will be in the office next week :point_down:",
+        show_enter_week_button=True,
     )
     slack_client.post_message(channel, message["text"], blocks=message["blocks"])
     return len({row.user_name for row in week_entries if row.location in ("Neal Street", "Client Office")})

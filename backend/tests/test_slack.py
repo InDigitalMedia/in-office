@@ -622,7 +622,7 @@ def test_build_neal_street_today_message_has_friendly_header():
     message = slack_views.build_neal_street_today_message("2026-07-29", [])
     header_text = message["blocks"][0]["text"]["text"]
 
-    assert header_text == "*:coffee: Good morning everyone! Here's who's in the office today :point_down:*"
+    assert header_text == "*:coffee: Good morning everyone! Here's who will be in the office today :point_down:*"
 
 
 def test_build_neal_street_today_message_shows_day_and_mentions():

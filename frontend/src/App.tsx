@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry } from './types'
-import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers, deleteUserWeek } from './api'
+import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers, deleteUserWeek, verifyAdminTabPassword } from './api'
 // Load team and client lists from public at runtime (no imports from root)
 
-type ViewMode = 'fill' | 'dashboard' | 'edit'
+type ViewMode = 'fill' | 'dashboard' | 'edit' | 'admin'
+
+const ADMIN_UNLOCKED_SESSION_KEY = 'admin_tab_unlocked'
 
 function getMondayOfWeek(date: Date): Date {
   const day = date.getDay()
@@ -283,6 +285,12 @@ function ClientSearchInput({
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('fill')
+  const [adminUnlocked, setAdminUnlocked] = useState(
+    () => sessionStorage.getItem(ADMIN_UNLOCKED_SESSION_KEY) === 'true'
+  )
+  const [adminPasswordInput, setAdminPasswordInput] = useState('')
+  const [adminError, setAdminError] = useState('')
+  const [adminChecking, setAdminChecking] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [weekStart, setWeekStart] = useState<Date>(getMondayOfWeek(new Date()))
   const [userName, setUserName] = useState(() => {
@@ -1182,6 +1190,21 @@ function App() {
     return naPlaceholder
   }
 
+  const handleAdminPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAdminChecking(true)
+    setAdminError('')
+    const ok = await verifyAdminTabPassword(adminPasswordInput)
+    setAdminChecking(false)
+    if (ok) {
+      setAdminUnlocked(true)
+      setAdminPasswordInput('')
+      sessionStorage.setItem(ADMIN_UNLOCKED_SESSION_KEY, 'true')
+    } else {
+      setAdminError('Incorrect password')
+    }
+  }
+
   return (
     <div className="container">
       <div className="header">
@@ -1235,49 +1258,57 @@ function App() {
         >
           Who's where
         </button>
+        <button
+          className={`toggle-btn ${viewMode === 'admin' ? 'active' : ''}`}
+          onClick={() => setViewMode('admin')}
+        >
+          Admin
+        </button>
       </div>
 
-      <div className="week-selector">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button className="preset-btn" type="button" onClick={goToPrevWeek}>{'<'} Prev</button>
+      {viewMode !== 'admin' && (
+        <div className="week-selector">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button className="preset-btn" type="button" onClick={goToPrevWeek}>{'<'} Prev</button>
 
-          {/* Hidden native input for calendar; themed launcher button opens it */}
-          <input
-            ref={dateInputRef}
-            id="week-start"
-            type="date"
-            value={formatDate(weekStart)}
-            onChange={handleWeekStartChange}
-            style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-            aria-hidden="true"
-            tabIndex={-1}
-          />
+            {/* Hidden native input for calendar; themed launcher button opens it */}
+            <input
+              ref={dateInputRef}
+              id="week-start"
+              type="date"
+              value={formatDate(weekStart)}
+              onChange={handleWeekStartChange}
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+              aria-hidden="true"
+              tabIndex={-1}
+            />
 
-          <button
-            className="preset-btn"
-            type="button"
-            onClick={openNativeDatePicker}
-            aria-label="Open calendar to select week"
-          >
-            📅 Select week: {formatWeekRangeLabel(weekStart)}
-          </button>
+            <button
+              className="preset-btn"
+              type="button"
+              onClick={openNativeDatePicker}
+              aria-label="Open calendar to select week"
+            >
+              📅 Select week: {formatWeekRangeLabel(weekStart)}
+            </button>
 
-          <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
+            <button className="preset-btn" type="button" onClick={goToNextWeek}>Next {'>'}</button>
 
-          <button
-            className="preset-btn"
-            type="button"
-            onClick={goToThisWeek}
-            style={{
-              marginLeft: '8px',
-              fontWeight: 700
-            }}
-          >
-            📍 This Week
-          </button>
+            <button
+              className="preset-btn"
+              type="button"
+              onClick={goToThisWeek}
+              style={{
+                marginLeft: '8px',
+                fontWeight: 700
+              }}
+            >
+              📍 This Week
+            </button>
+          </div>
+
         </div>
-
-      </div>
+      )}
 
       {error && <div className="error-message">{error}</div>}
 
@@ -2050,6 +2081,34 @@ function App() {
                   )
                 })}
             </>
+          )}
+        </div>
+      )}
+
+      {viewMode === 'admin' && (
+        <div className="dashboard">
+          {adminUnlocked ? (
+            <>
+              <h2>Admin</h2>
+              <p>Coming soon — this section is under construction.</p>
+            </>
+          ) : (
+            <form onSubmit={handleAdminPasswordSubmit} style={{ maxWidth: 320 }}>
+              <h2>Admin</h2>
+              <p>Enter the password to continue.</p>
+              <input
+                type="password"
+                value={adminPasswordInput}
+                onChange={(e) => setAdminPasswordInput(e.target.value)}
+                placeholder="Password"
+                autoFocus
+                style={{ width: '100%', marginBottom: '8px' }}
+              />
+              <button className="save-btn" type="submit" disabled={adminChecking || !adminPasswordInput}>
+                {adminChecking ? 'Checking...' : 'Unlock'}
+              </button>
+              {adminError && <div className="error-message">{adminError}</div>}
+            </form>
           )}
         </div>
       )}

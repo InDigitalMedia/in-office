@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ import entries as entries_module
 from db import create_db_and_tables, get_session, engine
 from models import Entry
 from schemas import (
+    AdminTabPasswordRequest,
     BulkUpsertRequest,
     BulkUpsertResponse,
     EntryResponse,
@@ -104,6 +106,23 @@ def require_admin(x_admin_secret: str | None = Header(default=None)):
         raise HTTPException(status_code=503, detail="Admin endpoints are not configured")
     if x_admin_secret != ADMIN_SECRET:
         raise HTTPException(status_code=403, detail="Invalid admin secret")
+
+
+# Gates the frontend's Admin tab -- a password typed into the UI, not sent as a
+# header automatically, so it's a separate env var/endpoint from ADMIN_SECRET
+# above. Set via the ADMIN_TAB_PASSWORD env var (temporary password, expected
+# to be rotated/removed later); no code-committed default, since this repo is
+# public.
+ADMIN_TAB_PASSWORD = os.getenv("ADMIN_TAB_PASSWORD")
+
+
+@app.post("/admin/verify-tab-password")
+def verify_admin_tab_password(request: AdminTabPasswordRequest):
+    if not ADMIN_TAB_PASSWORD:
+        raise HTTPException(status_code=503, detail="Admin tab password is not configured")
+    if not hmac.compare_digest(request.password, ADMIN_TAB_PASSWORD):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    return {"ok": True}
 
 
 @app.post("/entries/bulk_upsert", response_model=BulkUpsertResponse)

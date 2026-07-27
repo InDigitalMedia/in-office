@@ -25,6 +25,7 @@ def test_session():
 def client(test_session, monkeypatch):
     """Create a test client with dependency override."""
     monkeypatch.setattr("app.ADMIN_SECRET", "test-secret")
+    monkeypatch.setattr("app.ADMIN_TAB_PASSWORD", "test-tab-password")
 
     def get_test_session():
         yield test_session
@@ -172,6 +173,23 @@ def test_root_endpoint(client):
     data = response.json()
     assert "message" in data
     assert "docs" in data
+
+
+def test_admin_tab_password_correct_password_succeeds(client):
+    response = client.post("/admin/verify-tab-password", json={"password": "test-tab-password"})
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_admin_tab_password_wrong_password_rejected(client):
+    response = client.post("/admin/verify-tab-password", json={"password": "wrong"})
+    assert response.status_code == 401
+
+
+def test_admin_tab_password_not_configured(client, monkeypatch):
+    monkeypatch.setattr("app.ADMIN_TAB_PASSWORD", None)
+    response = client.post("/admin/verify-tab-password", json={"password": "anything"})
+    assert response.status_code == 503
 
 
 def test_vercel_preview_cors_regex_matches_current_project_name():

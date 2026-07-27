@@ -201,12 +201,80 @@ def test_parse_week_submission_non_client_location_has_no_text_capture():
     assert entries[0].notes is None
 
 
+def _view_with_split_day(offset: int, morning_loc: str | None, afternoon_loc: str | None, week_start="2026-07-27") -> dict:
+    """Simulates a day with its "Split into morning/afternoon" checkbox
+    checked, each half independently set to a plain (non-Client-Office/Other)
+    location -- the common split-day case."""
+    values = {
+        f"day_{offset}_split": {slack_views.SPLIT_DAY_ACTION_ID: {"selected_options": [slack_views._SPLIT_DAY_CHECKBOX_OPTION]}},
+        f"day_{offset}_morning": {"location": {"selected_option": {"value": morning_loc} if morning_loc else None}},
+        f"day_{offset}_afternoon": {"location": {"selected_option": {"value": afternoon_loc} if afternoon_loc else None}},
+    }
+    return {
+        "private_metadata": json.dumps({"week_start": week_start, "user_name": "Test User"}),
+        "state": {"values": values},
+    }
+
+
+def test_parse_week_submission_split_day_produces_two_entries_with_time_periods():
+    view = _view_with_split_day(0, "Neal Street", "WFH")
+    entries, errors = slack_views.parse_week_submission(view)
+
+    assert errors == {}
+    assert len(entries) == 2
+    by_period = {e.time_period: e for e in entries}
+    assert by_period["Morning"].location == "Neal Street"
+    assert by_period["Afternoon"].location == "WFH"
+    assert all(e.date == "2026-07-27" for e in entries)
+
+
+def test_parse_week_submission_split_day_client_office_requires_client_independently():
+    """Each half of a split day validates its own Client Office/Other
+    requirement independently -- morning can be valid while afternoon errors."""
+    values = {
+        "day_0_split": {slack_views.SPLIT_DAY_ACTION_ID: {"selected_options": [slack_views._SPLIT_DAY_CHECKBOX_OPTION]}},
+        "day_0_morning": {"location": {"selected_option": {"value": "Neal Street"}}},
+        "day_0_afternoon": {"location": {"selected_option": {"value": "Client Office"}}},
+        "client_select_0_afternoon": {slack_views.CLIENT_SELECT_ACTION_ID: {"selected_option": None}},
+    }
+    view = {
+        "private_metadata": json.dumps({"week_start": "2026-07-27", "user_name": "Test User"}),
+        "state": {"values": values},
+    }
+    entries, errors = slack_views.parse_week_submission(view)
+
+    assert len(entries) == 1
+    assert entries[0].location == "Neal Street"
+    assert "client_select_0_afternoon" in errors
+
+
+def test_parse_week_submission_unchecked_split_ignores_leftover_half_day_values():
+    """If a day isn't split, only the full-day field is read -- any stale
+    morning/afternoon values (e.g. from a client the user unchecked) are
+    ignored, matching how the modal only ever submits currently-rendered
+    blocks."""
+    values = {
+        "day_0": {"location": {"selected_option": {"value": "Neal Street"}}},
+        "day_0_morning": {"location": {"selected_option": {"value": "WFH"}}},
+    }
+    view = {
+        "private_metadata": json.dumps({"week_start": "2026-07-27", "user_name": "Test User"}),
+        "state": {"values": values},
+    }
+    entries, errors = slack_views.parse_week_submission(view)
+
+    assert errors == {}
+    assert len(entries) == 1
+    assert entries[0].location == "Neal Street"
+    assert entries[0].time_period is None
+
+
 # --- slack_views._build_day_blocks / extract_day_state (conditional client field) --
 
 def test_build_day_blocks_client_office_shows_dropdown_not_custom_text_by_default():
     """Picking a real client directly from the dropdown shouldn't reveal the
     custom-name text block -- only "Other (type below)" should."""
-    day_state = {0: {"location": "Client Office", "client_choice": "Sky", "text": "Sky"}}
+    day_state = {0: {"split": False, "full": {"location": "Client Office", "client_choice": "Sky", "text": "Sky"}}}
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
     block_ids = [b["block_id"] for b in blocks]
@@ -221,7 +289,9 @@ def test_build_day_blocks_client_office_shows_dropdown_not_custom_text_by_defaul
 
 
 def test_build_day_blocks_client_office_custom_reveals_text_block():
-    day_state = {0: {"location": "Client Office", "client_choice": slack_views.CUSTOM_CLIENT_VALUE, "text": "Acme Ventures"}}
+    day_state = {
+        0: {"split": False, "full": {"location": "Client Office", "client_choice": slack_views.CUSTOM_CLIENT_VALUE, "text": "Acme Ventures"}}
+    }
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
     block_ids = [b["block_id"] for b in blocks]
@@ -233,7 +303,7 @@ def test_build_day_blocks_client_office_custom_reveals_text_block():
 
 
 def test_build_day_blocks_other_location_shows_plain_text_not_dropdown():
-    day_state = {0: {"location": "Other", "text": "Conference"}}
+    day_state = {0: {"split": False, "full": {"location": "Other", "client_choice": None, "text": "Conference"}}}
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
     block_ids = [b["block_id"] for b in blocks]
@@ -246,7 +316,10 @@ def test_build_day_blocks_other_location_shows_plain_text_not_dropdown():
 
 
 def test_build_day_blocks_omits_any_client_field_for_non_client_locations():
-    day_state = {0: {"location": "WFH", "text": None}, 1: {"location": "Neal Street", "text": None}}
+    day_state = {
+        0: {"split": False, "full": {"location": "WFH", "client_choice": None, "text": None}},
+        1: {"split": False, "full": {"location": "Neal Street", "client_choice": None, "text": None}},
+    }
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
     block_ids = [b["block_id"] for b in blocks]
@@ -255,16 +328,63 @@ def test_build_day_blocks_omits_any_client_field_for_non_client_locations():
         assert f"{prefix}0" not in block_ids and f"{prefix}1" not in block_ids
 
 
+def test_build_day_blocks_split_day_shows_two_independent_location_fields():
+    day_state = {
+        0: {
+            "split": True,
+            "morning": {"location": "Neal Street", "client_choice": None, "text": None},
+            "afternoon": {"location": "Client Office", "client_choice": "Sky", "text": "Sky"},
+        }
+    }
+    blocks = slack_views._build_day_blocks("2026-07-27", day_state)
+    block_ids = [b["block_id"] for b in blocks]
+
+    assert "day_0_split" in block_ids
+    assert "day_0" not in block_ids  # full-day field not rendered when split
+    assert "day_0_morning" in block_ids
+    assert "day_0_afternoon" in block_ids
+    assert "client_select_0_afternoon" in block_ids  # afternoon's own Client Office field
+    assert "client_select_0_morning" not in block_ids  # morning is Neal Street, no client field
+
+    split_block = next(b for b in blocks if b["block_id"] == "day_0_split")
+    assert split_block["element"]["initial_options"] == [slack_views._SPLIT_DAY_CHECKBOX_OPTION]
+
+    morning_block = next(b for b in blocks if b["block_id"] == "day_0_morning")
+    assert morning_block["element"]["initial_option"]["value"] == "Neal Street"
+
+    afternoon_block = next(b for b in blocks if b["block_id"] == "day_0_afternoon")
+    assert afternoon_block["element"]["initial_option"]["value"] == "Client Office"
+
+
+def test_build_day_blocks_unchecked_split_defaults_to_a_blank_full_day_field():
+    """A day with no state at all (not yet touched) renders as a plain,
+    unchecked, blank single dropdown -- the default, most common case."""
+    blocks = slack_views._build_day_blocks("2026-07-27", {})
+    block_ids = [b["block_id"] for b in blocks]
+
+    assert "day_0_split" in block_ids
+    assert "day_0" in block_ids
+    assert "day_0_morning" not in block_ids
+    assert "day_0_afternoon" not in block_ids
+
+    split_block = next(b for b in blocks if b["block_id"] == "day_0_split")
+    assert "initial_options" not in split_block["element"]
+
+
 def test_extract_day_state_handles_missing_client_block():
     """If a day's client block(s) simply aren't in values (not currently
     rendered), extract_day_state should read them as no text, not raise."""
     values = {
         "day_0": {"location": {"selected_option": {"value": "WFH"}}},
-        # no client_0/client_select_0/client_custom_0 keys at all
+        # no client_0/client_select_0/client_custom_0 keys at all, and no
+        # day_0_split -- not a split day
     }
     day_state = slack_views.extract_day_state(values)
 
-    assert day_state[0] == {"location": "WFH", "client_choice": None, "text": None}
+    assert day_state[0]["split"] is False
+    assert day_state[0]["full"] == {"location": "WFH", "client_choice": None, "text": None}
+    assert day_state[0]["morning"] == {"location": None, "client_choice": None, "text": None}
+    assert day_state[0]["afternoon"] == {"location": None, "client_choice": None, "text": None}
 
 
 def test_extract_day_state_resolves_custom_client_text():
@@ -275,14 +395,31 @@ def test_extract_day_state_resolves_custom_client_text():
     }
     day_state = slack_views.extract_day_state(values)
 
-    assert day_state[0] == {"location": "Client Office", "client_choice": slack_views.CUSTOM_CLIENT_VALUE, "text": "Acme Ventures"}
+    assert day_state[0]["full"] == {
+        "location": "Client Office", "client_choice": slack_views.CUSTOM_CLIENT_VALUE, "text": "Acme Ventures"
+    }
+
+
+def test_extract_day_state_reads_split_checkbox_and_both_halves():
+    values = {
+        "day_0_split": {slack_views.SPLIT_DAY_ACTION_ID: {"selected_options": [slack_views._SPLIT_DAY_CHECKBOX_OPTION]}},
+        "day_0_morning": {"location": {"selected_option": {"value": "Neal Street"}}},
+        "day_0_afternoon": {"location": {"selected_option": {"value": "WFH"}}},
+    }
+    day_state = slack_views.extract_day_state(values)
+
+    assert day_state[0]["split"] is True
+    assert day_state[0]["morning"]["location"] == "Neal Street"
+    assert day_state[0]["afternoon"]["location"] == "WFH"
+    assert day_state[0]["full"] == {"location": None, "client_choice": None, "text": None}
 
 
 # --- slack_views.format_week_summary ------------------------------------------
 
 class _Row:
-    def __init__(self, date, location, user_name, client=None):
+    def __init__(self, date, location, user_name, client=None, time_period=None):
         self.date, self.location, self.user_name, self.client = date, location, user_name, client
+        self.time_period = time_period
 
 
 def test_format_location_groups_shows_neal_street_and_client_office_on_separate_lines():
@@ -585,14 +722,17 @@ def test_same_as_last_week_opens_prefilled_confirmation_modal_instead_of_saving(
     assert day_1_block["element"]["initial_option"]["value"] == "WFH"
 
 
-def test_same_as_last_week_flags_a_skipped_split_day_in_the_modal(monkeypatch):
+def test_same_as_last_week_carries_over_a_split_day_in_the_modal(monkeypatch):
+    """Split days are fully representable in the modal now, so "Same as last
+    week" should pre-fill them (checkbox pre-checked, both halves filled in),
+    not skip them."""
     monkeypatch.setattr(slack_routes, "_resolve_identity", lambda user_id: ("Alice Johnson", True))
     monkeypatch.setattr(
         slack_routes.queries,
         "get_last_week_entries_for_user",
         lambda session, user_key, week_start: {
             0: {"full": _FullEntry("Neal Street"), "morning": None, "afternoon": None},
-            1: {"full": None, "morning": "Neal Street", "afternoon": "WFH"},
+            1: {"full": None, "morning": _FullEntry("Neal Street"), "afternoon": _FullEntry("WFH")},
         },
     )
 
@@ -610,14 +750,21 @@ def test_same_as_last_week_flags_a_skipped_split_day_in_the_modal(monkeypatch):
 
     slack_routes._handle_block_action(session=None, payload=payload)
 
-    blocks_text = json.dumps(captured["view"]["blocks"])
-    assert "split" in blocks_text.lower()
+    blocks = captured["view"]["blocks"]
+    block_ids = [b.get("block_id") for b in blocks]
 
-    day_0_block = next(b for b in captured["view"]["blocks"] if b.get("block_id") == "day_0")
+    day_0_block = next(b for b in blocks if b.get("block_id") == "day_0")
     assert day_0_block["element"]["initial_option"]["value"] == "Neal Street"
 
-    day_1_block = next(b for b in captured["view"]["blocks"] if b.get("block_id") == "day_1")
-    assert "initial_option" not in day_1_block["element"]  # split day couldn't be pre-filled -- left blank
+    assert "day_1_split" in block_ids
+    day_1_split_block = next(b for b in blocks if b.get("block_id") == "day_1_split")
+    assert day_1_split_block["element"]["initial_options"] == [slack_views._SPLIT_DAY_CHECKBOX_OPTION]
+
+    day_1_morning_block = next(b for b in blocks if b.get("block_id") == "day_1_morning")
+    assert day_1_morning_block["element"]["initial_option"]["value"] == "Neal Street"
+
+    day_1_afternoon_block = next(b for b in blocks if b.get("block_id") == "day_1_afternoon")
+    assert day_1_afternoon_block["element"]["initial_option"]["value"] == "WFH"
 
 
 def test_same_as_last_week_with_no_full_day_entries_responds_without_opening_modal(monkeypatch):

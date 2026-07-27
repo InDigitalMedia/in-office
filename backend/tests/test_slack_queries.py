@@ -59,15 +59,35 @@ def test_build_prefill_includes_client_choice_for_client_office(test_session, mo
 
     prefill = slack_routes._build_prefill(test_session, "alice johnson", "2026-07-27")
 
-    assert prefill[0]["client_choice"] == "Sky"
-    assert prefill[0]["text"] == "Sky"
-    assert prefill[1]["client_choice"] == slack_views.CUSTOM_CLIENT_VALUE
-    assert prefill[1]["text"] == "Acme Ventures"
+    assert prefill[0]["split"] is False
+    assert prefill[0]["full"]["client_choice"] == "Sky"
+    assert prefill[0]["full"]["text"] == "Sky"
+    assert prefill[1]["full"]["client_choice"] == slack_views.CUSTOM_CLIENT_VALUE
+    assert prefill[1]["full"]["text"] == "Acme Ventures"
 
 
-def test_get_last_week_entries_for_user_skips_split_days(test_session):
+def test_build_prefill_represents_a_split_day(test_session):
+    """A split (morning/afternoon) day this week should pre-fill fully -- split
+    checkbox on, both halves populated -- not be skipped."""
+    import slack_routes
+    from schemas import EntryCreate
+
+    upsert_entries(test_session, "Bob Smith", [
+        EntryCreate(date="2026-07-27", time_period="Morning", location="Neal Street"),
+        EntryCreate(date="2026-07-27", time_period="Afternoon", location="WFH"),
+    ])
+
+    prefill = slack_routes._build_prefill(test_session, "bob smith", "2026-07-27")
+
+    assert prefill[0]["split"] is True
+    assert prefill[0]["morning"]["location"] == "Neal Street"
+    assert prefill[0]["afternoon"]["location"] == "WFH"
+
+
+def test_get_last_week_entries_for_user_separates_split_days(test_session):
     """A split (morning/afternoon) day should show up under morning/afternoon,
-    not full -- callers (the Slack quick-fill) are expected to skip these."""
+    not full -- the Slack modal's prefill logic (slack_routes.py) uses this
+    distinction to fully represent a split day, checkbox pre-checked."""
     from schemas import EntryCreate
 
     upsert_entries(test_session, "Bob Smith", [

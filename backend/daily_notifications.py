@@ -297,13 +297,7 @@ def _send_quickfill_reminders(session: Session, week_start: str, header_text: st
 
     sent = 0
     for name, slack_id in matched.items():
-        user_key = name.strip().lower()
-        last_week = queries.get_last_week_entries_for_user(session, user_key, week_start)
-        has_split = any(slot["morning"] or slot["afternoon"] for slot in last_week.values())
-
-        message = slack_views.build_quickfill_message(
-            week_start, has_split_last_week=has_split, header_text=header_text, mention=f"<@{slack_id}>"
-        )
+        message = slack_views.build_quickfill_message(week_start, header_text=header_text, mention=f"<@{slack_id}>")
         dm_channel = slack_client.open_dm(slack_id)
         if not dm_channel:
             continue

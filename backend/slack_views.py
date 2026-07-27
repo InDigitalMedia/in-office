@@ -5,13 +5,15 @@
    modal directly (no fresh trigger_id in a DM) so it needs a button first.
    /enter-week itself skips straight to the modal (see slack_routes.py) since a
    slash command already has a fresh trigger_id.
-2. build_week_modal / parse_week_submission -- the day-by-day entry form.
-   Full-day only, per the confirmed scope -- no morning/afternoon split support.
-   The per-day client/description field only appears once that day's location is
-   set to Client Office/Other (dispatch_action + views.update, driven from
-   slack_routes.py's dispatch handler) -- _build_day_blocks is the single source
-   of truth for that rendering rule, used both on initial open and on every
-   live update, so the two can't drift apart.
+2. build_week_modal / parse_week_submission -- the day-by-day entry form. Each
+   day has a "Split into morning/afternoon" checkbox; unchecked (the default)
+   shows one location field, checked shows two (morning/afternoon), each
+   independently able to be any location including Client Office/Other with
+   their own client/description sub-field. _build_day_blocks is the single
+   source of truth for which blocks exist given the current state (day split
+   or not, each field's location) -- used both on initial open and on every
+   live update (dispatch_action + views.update), so rendering can't drift from
+   what extract_day_state/parse_week_submission expect.
 3. build_neal_street_week_message -- shown privately to whoever just finished
    submitting, Officely-style: each day clearly separated, Neal Street and
    Client Office (grouped by client), with a link back to the full tracker.
@@ -37,6 +39,8 @@ WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturd
 
 LOCATION_ACTION_ID = "location"
 CLIENT_SELECT_ACTION_ID = "client_select"
+SPLIT_DAY_ACTION_ID = "split_day"
+SPLIT_DAY_CHECKBOX_VALUE = "split"
 # Sentinel dropdown value for "not in the list, let me type it" -- deliberately
 # not a real client name so it can never collide with an actual clients.json entry.
 CUSTOM_CLIENT_VALUE = "__custom__"
@@ -47,7 +51,7 @@ ACTION_FILL_WEEK = "quickfill_fill_week"
 CALLBACK_ID_WEEK_MODAL = "log_week_modal"
 
 # Any block_id whose value changing should trigger a live modal re-render.
-DISPATCH_ACTION_IDS = (LOCATION_ACTION_ID, CLIENT_SELECT_ACTION_ID)
+DISPATCH_ACTION_IDS = (LOCATION_ACTION_ID, CLIENT_SELECT_ACTION_ID, SPLIT_DAY_ACTION_ID)
 
 
 def _day_date(week_start: str, offset: int) -> str:
@@ -61,22 +65,24 @@ def _day_label(week_start: str, offset: int) -> str:
     return f"{WEEKDAY_NAMES[offset]} {date_obj.day} {date_obj.strftime('%b')}"
 
 
-def _sub_label(week_start: str, offset: int, field_name: str) -> str:
+def _sub_label(week_start: str, offset: int, field_name: str, half: str | None = None) -> str:
     """Label for a field nested under a specific day's location select. Slack's
     Block Kit gives every input block's label the same fixed bold styling --
     there's no way to actually indent/de-emphasize one relative to another --
     so the day association has to be carried in the text itself. The "↳" plus
     a short day reference is the closest approximation of "this is a sub-field
-    of the row above" that plain-text labels can convey."""
+    of the row above" that plain-text labels can convey. half ("Morning"/
+    "Afternoon") further disambiguates a client/description field on a split day,
+    since both halves render the same field_name independently."""
     date_str = _day_date(week_start, offset)
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     short_day = f"{WEEKDAY_NAMES[offset][:3]} {date_obj.day}"
+    if half:
+        return f"↳ {field_name} ({half}, {short_day})"
     return f"↳ {field_name} ({short_day})"
 
 
-def build_quickfill_message(
-    week_start: str, has_split_last_week: bool = False, header_text: str | None = None, mention: str | None = None
-) -> dict:
+def build_quickfill_message(week_start: str, header_text: str | None = None, mention: str | None = None) -> dict:
     """Block Kit message body (blocks + fallback text) for the quick-fill prompt.
     header_text lets callers reuse this for other weeks (e.g. the Friday next-week
     reminder) with wording appropriate to that context; defaults to the standard
@@ -87,16 +93,13 @@ def build_quickfill_message(
     header_text = header_text or "Don't forget to fill in your week!"
     if mention:
         header_text = f"Hey {mention} — {header_text}"
-    note = ""
-    if has_split_last_week:
-        note = "\n_Note: last week included a split (half) day, so \"Same as last week\" will skip that day -- use Fill in week for it._"
 
     blocks = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*{header_text}*{note}",
+                "text": f"*{header_text}*",
             },
         },
         {
@@ -120,14 +123,109 @@ def build_quickfill_message(
     return {"text": header_text, "blocks": blocks}
 
 
-def _build_day_blocks(week_start: str, day_state: dict) -> list:
-    """day_state: {offset: {"location": str|None, "client_choice": str|None, "text": str|None}}.
+def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state: dict) -> list:
+    """One location select + its conditional Client Office/Other sub-fields.
 
-    - "Other" location: a plain free-text description block (client_{offset}).
+    - "Other" location: a plain free-text description block (client_{suffix}).
     - "Client Office" location: a dropdown of clients.json entries plus an
-      "Other (type below)" option (client_select_{offset}); choosing that reveals
-      a further custom-name text block (client_custom_{offset}).
+      "Other (type below)" option (client_select_{suffix}); choosing that reveals
+      a further custom-name text block (client_custom_{suffix}).
     - Anything else: no client-related block at all.
+
+    block_id_suffix distinguishes this field's block_ids from any other location
+    field on the same day (the day's own offset for a full day, or "{offset}_morning"/
+    "{offset}_afternoon" when that day is split), so their state can never collide.
+    sub_label_fn(field_name) builds this field's own sub-field labels (day-only or
+    half-day-aware, depending on the caller)."""
+    location = state.get("location")
+
+    location_block = {
+        "type": "input",
+        "block_id": f"day_{block_id_suffix}",
+        "dispatch_action": True,
+        "label": {"type": "plain_text", "text": label},
+        "element": {
+            "type": "static_select",
+            "action_id": LOCATION_ACTION_ID,
+            "options": [
+                {"text": {"type": "plain_text", "text": loc}, "value": loc}
+                for loc in VALID_LOCATIONS
+            ],
+        },
+    }
+    if location:
+        location_block["element"]["initial_option"] = {
+            "text": {"type": "plain_text", "text": location},
+            "value": location,
+        }
+    blocks = [location_block]
+
+    if location == "Client Office":
+        client_choice = state.get("client_choice")
+        options = [
+            {"text": {"type": "plain_text", "text": name}, "value": name}
+            for name in clients.get_clients()
+        ] + [{"text": {"type": "plain_text", "text": "Other (type below)"}, "value": CUSTOM_CLIENT_VALUE}]
+        select_block = {
+            "type": "input",
+            "block_id": f"client_select_{block_id_suffix}",
+            "optional": True,
+            "dispatch_action": True,
+            "label": {"type": "plain_text", "text": sub_label_fn("Client")},
+            "element": {
+                "type": "static_select",
+                "action_id": CLIENT_SELECT_ACTION_ID,
+                "options": options,
+            },
+        }
+        if client_choice:
+            label_text = "Other (type below)" if client_choice == CUSTOM_CLIENT_VALUE else client_choice
+            select_block["element"]["initial_option"] = {
+                "text": {"type": "plain_text", "text": label_text},
+                "value": client_choice,
+            }
+        blocks.append(select_block)
+
+        if client_choice == CUSTOM_CLIENT_VALUE:
+            custom_block = {
+                "type": "input",
+                "block_id": f"client_custom_{block_id_suffix}",
+                "optional": True,
+                "label": {"type": "plain_text", "text": sub_label_fn("Client name")},
+                "element": {"type": "plain_text_input", "action_id": "text"},
+            }
+            if state.get("text"):
+                custom_block["element"]["initial_value"] = state["text"]
+            blocks.append(custom_block)
+
+    elif location == "Other":
+        text_block = {
+            "type": "input",
+            "block_id": f"client_{block_id_suffix}",
+            "optional": True,
+            "label": {"type": "plain_text", "text": sub_label_fn("Description")},
+            "element": {"type": "plain_text_input", "action_id": "text"},
+        }
+        if state.get("text"):
+            text_block["element"]["initial_value"] = state["text"]
+        blocks.append(text_block)
+
+    return blocks
+
+
+_SPLIT_DAY_CHECKBOX_OPTION = {
+    "text": {"type": "plain_text", "text": "Split into morning/afternoon"},
+    "value": SPLIT_DAY_CHECKBOX_VALUE,
+}
+
+
+def _build_day_blocks(week_start: str, day_state: dict) -> list:
+    """day_state: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}},
+    where each of full/morning/afternoon is {"location": str|None, "client_choice":
+    str|None, "text": str|None}. Every day gets a "Split into morning/afternoon"
+    checkbox; unchecked (the default) renders one location field ("full"),
+    checked renders two independent ones ("morning"/"afternoon"), each with its
+    own conditional Client Office/Other sub-field.
 
     This one function is the single source of truth for which blocks exist given
     the current state, used both when the modal first opens and every time it's
@@ -135,118 +233,99 @@ def _build_day_blocks(week_start: str, day_state: dict) -> list:
     blocks = []
     for offset in range(5):
         state = day_state.get(offset, {})
-        location = state.get("location")
+        split = bool(state.get("split"))
 
-        location_block = {
+        split_block = {
             "type": "input",
-            "block_id": f"day_{offset}",
+            "block_id": f"day_{offset}_split",
+            "optional": True,
             "dispatch_action": True,
             "label": {"type": "plain_text", "text": _day_label(week_start, offset)},
             "element": {
-                "type": "static_select",
-                "action_id": LOCATION_ACTION_ID,
-                "options": [
-                    {"text": {"type": "plain_text", "text": loc}, "value": loc}
-                    for loc in VALID_LOCATIONS
-                ],
+                "type": "checkboxes",
+                "action_id": SPLIT_DAY_ACTION_ID,
+                "options": [_SPLIT_DAY_CHECKBOX_OPTION],
             },
         }
-        if location:
-            location_block["element"]["initial_option"] = {
-                "text": {"type": "plain_text", "text": location},
-                "value": location,
-            }
-        blocks.append(location_block)
+        if split:
+            split_block["element"]["initial_options"] = [_SPLIT_DAY_CHECKBOX_OPTION]
+        blocks.append(split_block)
 
-        if location == "Client Office":
-            client_choice = state.get("client_choice")
-            options = [
-                {"text": {"type": "plain_text", "text": name}, "value": name}
-                for name in clients.get_clients()
-            ] + [{"text": {"type": "plain_text", "text": "Other (type below)"}, "value": CUSTOM_CLIENT_VALUE}]
-            select_block = {
-                "type": "input",
-                "block_id": f"client_select_{offset}",
-                "optional": True,
-                "dispatch_action": True,
-                "label": {"type": "plain_text", "text": _sub_label(week_start, offset, "Client")},
-                "element": {
-                    "type": "static_select",
-                    "action_id": CLIENT_SELECT_ACTION_ID,
-                    "options": options,
-                },
-            }
-            if client_choice:
-                label = "Other (type below)" if client_choice == CUSTOM_CLIENT_VALUE else client_choice
-                select_block["element"]["initial_option"] = {
-                    "text": {"type": "plain_text", "text": label},
-                    "value": client_choice,
-                }
-            blocks.append(select_block)
-
-            if client_choice == CUSTOM_CLIENT_VALUE:
-                custom_block = {
-                    "type": "input",
-                    "block_id": f"client_custom_{offset}",
-                    "optional": True,
-                    "label": {"type": "plain_text", "text": _sub_label(week_start, offset, "Client name")},
-                    "element": {"type": "plain_text_input", "action_id": "text"},
-                }
-                if state.get("text"):
-                    custom_block["element"]["initial_value"] = state["text"]
-                blocks.append(custom_block)
-
-        elif location == "Other":
-            text_block = {
-                "type": "input",
-                "block_id": f"client_{offset}",
-                "optional": True,
-                "label": {"type": "plain_text", "text": _sub_label(week_start, offset, "Description")},
-                "element": {"type": "plain_text_input", "action_id": "text"},
-            }
-            if state.get("text"):
-                text_block["element"]["initial_value"] = state["text"]
-            blocks.append(text_block)
+        if split:
+            blocks.extend(_build_location_field(
+                _sub_label(week_start, offset, "Morning"),
+                f"{offset}_morning",
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
+                state.get("morning", {}),
+            ))
+            blocks.extend(_build_location_field(
+                _sub_label(week_start, offset, "Afternoon"),
+                f"{offset}_afternoon",
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
+                state.get("afternoon", {}),
+            ))
+        else:
+            blocks.extend(_build_location_field(
+                "Location",
+                str(offset),
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
+                state.get("full", {}),
+            ))
 
     return blocks
+
+
+def _extract_location_field(values: dict, block_id_suffix: str) -> dict:
+    """{"location": str|None, "client_choice": str|None, "text": str|None} for
+    one location field, given the block_id suffix that identifies it (an
+    offset for a full day, or "{offset}_morning"/"{offset}_afternoon" for a
+    split day's halves). A block simply won't be in values if it isn't
+    currently rendered -- .get(...) throughout handles that as "not set"."""
+    location_field = values.get(f"day_{block_id_suffix}", {}).get(LOCATION_ACTION_ID, {})
+    selected = location_field.get("selected_option")
+    location = selected["value"] if selected else None
+
+    client_choice = None
+    text = None
+    if location == "Client Office":
+        select_field = values.get(f"client_select_{block_id_suffix}", {}).get(CLIENT_SELECT_ACTION_ID, {})
+        choice_selected = select_field.get("selected_option")
+        client_choice = choice_selected["value"] if choice_selected else None
+        if client_choice == CUSTOM_CLIENT_VALUE:
+            text = values.get(f"client_custom_{block_id_suffix}", {}).get("text", {}).get("value")
+        else:
+            text = client_choice  # a real client name picked directly from the dropdown
+    elif location == "Other":
+        text = values.get(f"client_{block_id_suffix}", {}).get("text", {}).get("value")
+
+    return {"location": location, "client_choice": client_choice, "text": text}
 
 
 def extract_day_state(values: dict) -> dict:
     """Reads the modal's current full state (all 5 days) out of a view's
     state.values -- used both to rebuild blocks on a live field change and to
-    parse the final submission, so both paths agree on what's "currently set".
-
-    Each block simply won't be in values if it isn't currently rendered (e.g. a
-    non-Client-Office day has no client_select_N) -- .get(...) throughout handles
-    that as "not set", which is the correct behavior either way."""
+    parse the final submission, so both paths agree on what's "currently set"."""
     day_state = {}
     for offset in range(5):
-        location_field = values.get(f"day_{offset}", {}).get(LOCATION_ACTION_ID, {})
-        selected = location_field.get("selected_option")
-        location = selected["value"] if selected else None
+        split_field = values.get(f"day_{offset}_split", {}).get(SPLIT_DAY_ACTION_ID, {})
+        split = bool(split_field.get("selected_options"))
 
-        client_choice = None
-        text = None
-        if location == "Client Office":
-            select_field = values.get(f"client_select_{offset}", {}).get(CLIENT_SELECT_ACTION_ID, {})
-            choice_selected = select_field.get("selected_option")
-            client_choice = choice_selected["value"] if choice_selected else None
-            if client_choice == CUSTOM_CLIENT_VALUE:
-                text = values.get(f"client_custom_{offset}", {}).get("text", {}).get("value")
-            else:
-                text = client_choice  # a real client name picked directly from the dropdown
-        elif location == "Other":
-            text = values.get(f"client_{offset}", {}).get("text", {}).get("value")
-
-        day_state[offset] = {"location": location, "client_choice": client_choice, "text": text}
+        day_state[offset] = {
+            "split": split,
+            "full": _extract_location_field(values, str(offset)),
+            "morning": _extract_location_field(values, f"{offset}_morning"),
+            "afternoon": _extract_location_field(values, f"{offset}_afternoon"),
+        }
     return day_state
 
 
 def build_week_modal(
     week_start: str, user_name: str, prefill: dict | None = None, title: str | None = None, note: str | None = None
 ) -> dict:
-    """prefill: {offset: {"location": str, "text": str}} for pre-filling from existing entries.
-    title overrides the modal's title (Slack caps plain_text titles at 24 chars).
+    """prefill: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}}
+    for pre-filling from existing entries (see _build_day_blocks for the shape
+    of each field). title overrides the modal's title (Slack caps plain_text
+    titles at 24 chars).
     note, if given, renders as a leading text block above the day fields -- used
     by "Same as last week" to flag anything that couldn't be carried over."""
     blocks = _build_day_blocks(week_start, prefill or {})
@@ -280,6 +359,45 @@ def rebuild_modal_view(
     return build_week_modal(week_start, user_name, prefill=day_state, title=title, note=note)
 
 
+def _parse_location_field(
+    field_state: dict, date_str: str, block_id_suffix: str, time_period: str | None, entries: list, errors: dict
+) -> None:
+    """Turns one location field's state into an EntryCreate (appended to entries),
+    or a field-anchored error (added to errors) if a required client/description
+    was left blank. Shared by the full-day and each half of a split day."""
+    location = field_state["location"]
+    if not location:
+        return  # left blank -- no entry for this field
+
+    text_value = (field_state["text"] or "").strip() or None
+
+    # The single per-field text value means either "client" (required for
+    # Client Office/Other) or free-form "notes" -- matches the web app's own
+    # conditional routing (frontend/src/App.tsx:1012-1015).
+    entry_kwargs = {"date": date_str, "location": location}
+    if time_period:
+        entry_kwargs["time_period"] = time_period
+    if location in CLIENT_TEXT_LOCATIONS:
+        entry_kwargs["client"] = text_value
+    else:
+        entry_kwargs["notes"] = text_value
+
+    try:
+        entries.append(EntryCreate(**entry_kwargs))
+    except ValidationError:
+        # Client Office/Other require a client name -- EntryCreate's own
+        # validator raises for that, but this offers Slack a friendlier,
+        # field-anchored inline error instead of a generic one. Anchor it to
+        # whichever block is actually currently rendered for this field, or
+        # Slack will silently ignore an error pointed at a nonexistent block_id.
+        if location == "Client Office":
+            choice = field_state["client_choice"]
+            block_id = f"client_custom_{block_id_suffix}" if choice == CUSTOM_CLIENT_VALUE else f"client_select_{block_id_suffix}"
+        else:
+            block_id = f"client_{block_id_suffix}"
+        errors[block_id] = "Client name/description is required for this location"
+
+
 def parse_week_submission(view: dict) -> tuple[list[EntryCreate], dict]:
     """Returns (entries, errors). If errors is non-empty, caller must return a
     Slack response_action:errors payload and must NOT touch the database."""
@@ -292,34 +410,13 @@ def parse_week_submission(view: dict) -> tuple[list[EntryCreate], dict]:
 
     for offset in range(5):
         state = day_state[offset]
-        location = state["location"]
-        if not location:
-            continue  # day left blank -- no entry for this day
+        date_str = _day_date(week_start, offset)
 
-        text_value = (state["text"] or "").strip() or None
-
-        # The single per-day text field means either "client" (required for
-        # Client Office/Other) or free-form "notes" -- matches the web app's own
-        # conditional routing (frontend/src/App.tsx:1012-1015).
-        entry_kwargs = {"date": _day_date(week_start, offset), "location": location}
-        if location in CLIENT_TEXT_LOCATIONS:
-            entry_kwargs["client"] = text_value
+        if state["split"]:
+            _parse_location_field(state["morning"], date_str, f"{offset}_morning", "Morning", entries, errors)
+            _parse_location_field(state["afternoon"], date_str, f"{offset}_afternoon", "Afternoon", entries, errors)
         else:
-            entry_kwargs["notes"] = text_value
-
-        try:
-            entries.append(EntryCreate(**entry_kwargs))
-        except ValidationError:
-            # Client Office/Other require a client name -- EntryCreate's own
-            # validator raises for that, but this offers Slack a friendlier,
-            # field-anchored inline error instead of a generic one. Anchor it to
-            # whichever block is actually currently rendered for this day, or
-            # Slack will silently ignore an error pointed at a nonexistent block_id.
-            if location == "Client Office":
-                block_id = f"client_custom_{offset}" if state["client_choice"] == CUSTOM_CLIENT_VALUE else f"client_select_{offset}"
-            else:
-                block_id = f"client_{offset}"
-            errors[block_id] = "Client name/description is required for this location"
+            _parse_location_field(state["full"], date_str, str(offset), None, entries, errors)
 
     return entries, errors
 
@@ -347,11 +444,27 @@ def _mention(name: str, directory: dict) -> str:
     return f"<@{match['id']}>" if match else f"@{name}"
 
 
-def _format_names(names: list[str], directory: dict) -> str:
-    unique_sorted = sorted(set(names))
-    if not unique_sorted:
+def _format_entries(rows: list, directory: dict) -> str:
+    """Names for one location group, annotated with a time period (e.g.
+    "@Name (Morning)") when a row is a split (half) day entry -- matching the
+    tracker website's display convention. Without this, someone at Neal Street
+    in the morning and a Client Office in the afternoon would just look like an
+    unexplained duplicate between the two sections."""
+    unique_rows: dict[tuple[str, str], object] = {}
+    for row in rows:
+        key = (row.user_name.strip().lower(), getattr(row, "time_period", None) or "")
+        unique_rows.setdefault(key, row)
+
+    if not unique_rows:
         return "_No one going_"
-    return "  ".join(_mention(n, directory) for n in unique_sorted)
+
+    def label(row) -> str:
+        mention = _mention(row.user_name, directory)
+        time_period = getattr(row, "time_period", None)
+        return f"{mention} ({time_period})" if time_period else mention
+
+    ordered = sorted(unique_rows.values(), key=lambda r: (r.user_name.strip().lower(), r.time_period or ""))
+    return "  ".join(label(row) for row in ordered)
 
 
 def _format_location_groups(day_rows: list, directory: dict) -> str:
@@ -360,21 +473,21 @@ def _format_location_groups(day_rows: list, directory: dict) -> str:
     client name on its own rows below. Other locations (WFH, Holiday, etc.)
     aren't shown here since these summaries are specifically about who's in
     an office."""
-    neal_street_names = [row.user_name for row in day_rows if row.location == "Neal Street"]
+    neal_street_rows = [row for row in day_rows if row.location == "Neal Street"]
     client_rows = [row for row in day_rows if row.location == "Client Office"]
 
     sections = []
-    if neal_street_names:
-        count = len(set(neal_street_names))
-        sections.append(f"🏢 *Neal Street ({count})*\n{_format_names(neal_street_names, directory)}")
+    if neal_street_rows:
+        count = len({row.user_name for row in neal_street_rows})
+        sections.append(f"🏢 *Neal Street ({count})*\n{_format_entries(neal_street_rows, directory)}")
 
     if client_rows:
         count = len({row.user_name for row in client_rows})
-        by_client: dict[str, list[str]] = {}
+        by_client: dict[str, list] = {}
         for row in client_rows:
-            by_client.setdefault(row.client or "No Client", []).append(row.user_name)
+            by_client.setdefault(row.client or "No Client", []).append(row)
         client_lines = "\n".join(
-            f"*{client}*: {_format_names(names, directory)}" for client, names in sorted(by_client.items())
+            f"*{client}*: {_format_entries(rows, directory)}" for client, rows in sorted(by_client.items())
         )
         sections.append(f"💼 *Client Office ({count})*\n{client_lines}")
 

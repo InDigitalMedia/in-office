@@ -277,7 +277,7 @@ def test_build_day_blocks_client_office_shows_dropdown_not_custom_text_by_defaul
     day_state = {0: {"split": False, "full": {"location": "Client Office", "client_choice": "Sky", "text": "Sky"}}}
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
     assert "client_select_0" in block_ids
     assert "client_custom_0" not in block_ids
 
@@ -294,7 +294,7 @@ def test_build_day_blocks_client_office_custom_reveals_text_block():
     }
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
     assert "client_select_0" in block_ids
     assert "client_custom_0" in block_ids
 
@@ -306,7 +306,7 @@ def test_build_day_blocks_other_location_shows_plain_text_not_dropdown():
     day_state = {0: {"split": False, "full": {"location": "Other", "client_choice": None, "text": "Conference"}}}
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
     assert "client_0" in block_ids
     assert "client_select_0" not in block_ids
 
@@ -322,7 +322,7 @@ def test_build_day_blocks_omits_any_client_field_for_non_client_locations():
     }
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
 
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
     assert "day_0" in block_ids and "day_1" in block_ids
     for prefix in ("client_", "client_select_", "client_custom_"):
         assert f"{prefix}0" not in block_ids and f"{prefix}1" not in block_ids
@@ -337,7 +337,7 @@ def test_build_day_blocks_split_day_shows_two_independent_location_fields():
         }
     }
     blocks = slack_views._build_day_blocks("2026-07-27", day_state)
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
 
     assert "day_0_split" in block_ids
     assert "day_0" not in block_ids  # full-day field not rendered when split
@@ -360,7 +360,7 @@ def test_build_day_blocks_unchecked_split_defaults_to_a_blank_full_day_field():
     """A day with no state at all (not yet touched) renders as a plain,
     unchecked, blank single dropdown -- the default, most common case."""
     blocks = slack_views._build_day_blocks("2026-07-27", {})
-    block_ids = [b["block_id"] for b in blocks]
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]  # dividers have no block_id
 
     assert "day_0_split" in block_ids
     assert "day_0" in block_ids
@@ -369,6 +369,22 @@ def test_build_day_blocks_unchecked_split_defaults_to_a_blank_full_day_field():
 
     split_block = next(b for b in blocks if b["block_id"] == "day_0_split")
     assert "initial_options" not in split_block["element"]
+
+
+def test_build_day_blocks_separates_days_with_dividers():
+    """One divider between each day (4 for 5 days), none before the first or
+    after the last -- otherwise every day's fields run together with no more
+    visual separation than the fields within a single day."""
+    blocks = slack_views._build_day_blocks("2026-07-27", {})
+
+    assert blocks[0]["type"] != "divider"
+    assert blocks[-1]["type"] != "divider"
+    assert sum(1 for b in blocks if b["type"] == "divider") == 4
+
+    day_starts = [i for i, b in enumerate(blocks) if b.get("block_id", "").endswith("_split")]
+    assert len(day_starts) == 5
+    for start in day_starts[1:]:
+        assert blocks[start - 1]["type"] == "divider"
 
 
 def test_extract_day_state_handles_missing_client_block():
@@ -706,7 +722,7 @@ def test_handle_location_change_shows_client_field_and_preserves_other_days(monk
     assert captured["view_id"] == "V123"
     assert captured["view_hash"] == "hash123"
 
-    block_ids = [b["block_id"] for b in captured["view"]["blocks"]]
+    block_ids = [b["block_id"] for b in captured["view"]["blocks"] if "block_id" in b]  # dividers have no block_id
     assert "client_select_0" not in block_ids  # WFH -- no client field
     assert "client_select_1" in block_ids       # Client Office -- dropdown shown
 

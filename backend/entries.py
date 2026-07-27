@@ -46,6 +46,15 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
         except Exception:
             pass  # Default to SQLite pattern
 
+        if is_postgres:
+            # Serialize concurrent upserts for the same user so one request's delete-then-
+            # insert (below) can't run interleaved with another's -- without this, two
+            # near-simultaneous submissions for the same user+date (e.g. a full-day one and
+            # a split one) can each fail to see the other's uncommitted row under READ
+            # COMMITTED, leaving both a full-day and a split row behind. Held for the
+            # transaction's duration and auto-released on commit/rollback.
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:user_key))"), {"user_key": user_key})
+
         # Handle overwriting between split and full-day entries
         # Collect dates that have split entries (time_period is not None/empty)
         split_dates = set()

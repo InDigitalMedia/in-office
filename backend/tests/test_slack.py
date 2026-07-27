@@ -504,7 +504,7 @@ def test_build_neal_street_week_message_ends_with_full_schedule_button():
 
     assert actions_block["type"] == "actions"
     button = actions_block["elements"][0]
-    assert button["text"]["text"] == "See Full Schedule"
+    assert button["text"]["text"] == "📅 See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
 
 
@@ -523,7 +523,7 @@ def test_build_neal_street_week_message_shows_enter_week_button_when_requested()
 
     assert len(actions_block["elements"]) == 2
     enter_week_button = actions_block["elements"][1]
-    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
 
@@ -591,7 +591,7 @@ def test_build_neal_street_tomorrow_message_ends_with_full_schedule_button():
 
     assert actions_block["type"] == "actions"
     button = actions_block["elements"][0]
-    assert button["text"]["text"] == "See Full Schedule"
+    assert button["text"]["text"] == "📅 See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
 
 
@@ -601,7 +601,7 @@ def test_build_neal_street_tomorrow_message_has_enter_my_week_button_for_its_own
     actions_block = message["blocks"][-1]
 
     enter_week_button = actions_block["elements"][1]
-    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
 
@@ -660,7 +660,7 @@ def test_build_neal_street_today_message_ends_with_full_schedule_button():
 
     assert actions_block["type"] == "actions"
     button = actions_block["elements"][0]
-    assert button["text"]["text"] == "See Full Schedule"
+    assert button["text"]["text"] == "📅 See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
 
 
@@ -670,7 +670,7 @@ def test_build_neal_street_today_message_has_enter_my_week_button_for_its_own_we
     actions_block = message["blocks"][-1]
 
     enter_week_button = actions_block["elements"][1]
-    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
 

@@ -443,7 +443,7 @@ def _see_full_schedule_button() -> dict:
         # _handle_block_action can recognize and ignore it cleanly
         # instead of crashing on a missing dict key.
         "type": "button",
-        "text": {"type": "plain_text", "text": "See Full Schedule"},
+        "text": {"type": "plain_text", "text": "📅 See Full Schedule", "emoji": True},
         "url": TRACKER_URL,
         "action_id": ACTION_VIEW_FULL_SCHEDULE,
         "value": TRACKER_URL,
@@ -457,7 +457,7 @@ def _enter_my_week_button(week_start: str) -> dict:
     DM's "Fill in week" button), so no new routing logic is needed."""
     return {
         "type": "button",
-        "text": {"type": "plain_text", "text": "📝 Enter My Week", "emoji": True},
+        "text": {"type": "plain_text", "text": "✏️ Fill My Week", "emoji": True},
         "action_id": ACTION_FILL_WEEK,
         "value": week_start,
     }

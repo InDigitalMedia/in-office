@@ -5,8 +5,6 @@ import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, 
 
 type ViewMode = 'fill' | 'dashboard' | 'edit' | 'admin'
 
-const ADMIN_UNLOCKED_SESSION_KEY = 'admin_tab_unlocked'
-
 function getMondayOfWeek(date: Date): Date {
   const day = date.getDay()
   const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
@@ -285,9 +283,7 @@ function ClientSearchInput({
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('fill')
-  const [adminUnlocked, setAdminUnlocked] = useState(
-    () => sessionStorage.getItem(ADMIN_UNLOCKED_SESSION_KEY) === 'true'
-  )
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
   const [adminPasswordInput, setAdminPasswordInput] = useState('')
   const [adminError, setAdminError] = useState('')
   const [adminChecking, setAdminChecking] = useState(false)
@@ -1199,7 +1195,6 @@ function App() {
     if (ok) {
       setAdminUnlocked(true)
       setAdminPasswordInput('')
-      sessionStorage.setItem(ADMIN_UNLOCKED_SESSION_KEY, 'true')
     } else {
       setAdminError('Incorrect password')
     }

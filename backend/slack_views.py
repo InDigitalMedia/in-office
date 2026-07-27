@@ -617,7 +617,7 @@ def build_neal_street_today_message(date_str: str, day_rows: list, directory: di
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     weekday_name = WEEKDAY_NAMES[date_obj.weekday()][:3]
     day_header = f"{weekday_name} {_ordinal_day(date_obj.day)}"
-    greeting = ":coffee: Good morning everyone! Here's who's in the office today :point_down:"
+    greeting = ":coffee: Good morning everyone! Here's who will be in the office today :point_down:"
     return _build_single_day_neal_street_message(greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory)
 
 

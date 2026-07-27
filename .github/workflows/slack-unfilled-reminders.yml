@@ -1,14 +1,9 @@
 name: Slack Unfilled Week Reminders
 
 on:
-  schedule:
-    # 08:05 and 09:05 UTC covers ~9am London time in both BST and GMT -- the
-    # endpoint itself checks the current London hour (via a widened window, see
-    # daily_notifications.py) and no-ops on the firing that doesn't match, so
-    # this never needs editing for daylight saving. Offset 5 minutes past the
-    # hour (rather than exactly on it) since GitHub Actions' scheduler sees the
-    # heaviest cross-platform load at :00, which has caused delayed firings.
-    - cron: '5 8,9 * * 1-5'
+  # Real scheduling moved to cron-job.org (hits /internal/slack/unfilled-reminders
+  # directly, ~9:05am London) -- GitHub Actions' scheduler was unreliable (observed
+  # firing hours late, or not at all). workflow_dispatch kept for manual force-testing.
   workflow_dispatch:
     inputs:
       force:

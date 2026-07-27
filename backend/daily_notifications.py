@@ -1,8 +1,9 @@
 """The Slack scheduled jobs: Neal Street digests to a channel + quick-fill DM reminders.
 
 Triggered by POST /internal/slack/daily-digest, /internal/slack/unfilled-reminders,
-/internal/slack/tomorrow-digest, and /internal/slack/next-week-reminder, each called
-twice by a GitHub Actions cron (once per UTC-equivalent of the target London hour).
+/internal/slack/afternoon-unfilled-reminders, /internal/slack/tomorrow-digest, and
+/internal/slack/next-week-reminder, each called twice by a GitHub Actions cron (once
+per UTC-equivalent of the target London hour).
 
 GitHub Actions' scheduled triggers are best-effort and can fire hours late (observed:
 a 9am-targeted cron not actually running until 3pm) or not fire at all on a given day.
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 LONDON_TZ = ZoneInfo("Europe/London")
 TARGET_HOUR = int(os.getenv("SLACK_DAILY_HOUR", "9"))
+AFTERNOON_UNFILLED_TARGET_HOUR = int(os.getenv("SLACK_AFTERNOON_UNFILLED_HOUR", "14"))
 AFTERNOON_TARGET_HOUR = int(os.getenv("SLACK_AFTERNOON_HOUR", "16"))
 FRIDAY_TARGET_HOUR = int(os.getenv("SLACK_FRIDAY_HOUR", "14"))
 GATE_WINDOW_HOURS = int(os.getenv("SLACK_GATE_WINDOW_HOURS", "8"))
@@ -159,6 +161,39 @@ def run_unfilled_reminders(session: Session, force: bool = False) -> dict:
 
     if not force:
         _mark_ran_today(session, "unfilled_reminders", today_str)
+    return {
+        "ok": True,
+        "reminders_sent": reminders_sent,
+        "unmatched_roster_names": unmatched,
+    }
+
+
+def run_afternoon_unfilled_reminders(session: Session, force: bool = False) -> dict:
+    """A second, later-day quick-fill nudge around 2pm London for anyone still
+    unfilled after the 9am reminder -- uses its own ScheduledRunLog key
+    ("afternoon_unfilled_reminders") distinct from the morning job's, so both
+    can send on the same day independently rather than one blocking the other.
+    force=True bypasses the weekday/hour/already-sent gates entirely -- used
+    for manual test runs (see trigger_afternoon_unfilled_reminders in
+    slack_routes.py) -- the scheduled cron never sets it."""
+    now = datetime.now(LONDON_TZ)
+    today_str = now.strftime("%Y-%m-%d")
+
+    if not force:
+        if now.weekday() >= 5:
+            return {"ok": True, "skipped": "weekend"}
+        if not _within_gate_window(now.hour, AFTERNOON_UNFILLED_TARGET_HOUR):
+            return {"ok": True, "skipped": "not target hour", "hour": now.hour}
+        if _already_ran_today(session, "afternoon_unfilled_reminders", today_str):
+            return {"ok": True, "skipped": "already sent today"}
+
+    week_start = monday_of(now.date())
+    reminders_sent, unmatched = _send_quickfill_reminders(
+        session, week_start, header_text="⏰ Last call today — don't forget to fill in your week!"
+    )
+
+    if not force:
+        _mark_ran_today(session, "afternoon_unfilled_reminders", today_str)
     return {
         "ok": True,
         "reminders_sent": reminders_sent,

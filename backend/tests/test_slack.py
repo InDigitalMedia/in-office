@@ -508,6 +508,26 @@ def test_build_neal_street_week_message_ends_with_full_schedule_button():
     assert button["url"] == slack_views.TRACKER_URL
 
 
+def test_build_neal_street_week_message_omits_enter_week_button_by_default():
+    """The post-submission "this week" summary shouldn't offer to re-enter the
+    week the user just submitted -- only the next-week digest opts in."""
+    message = slack_views.build_neal_street_week_message([], "2026-07-27")
+    actions_block = message["blocks"][-1]
+
+    assert len(actions_block["elements"]) == 1
+
+
+def test_build_neal_street_week_message_shows_enter_week_button_when_requested():
+    message = slack_views.build_neal_street_week_message([], "2026-07-27", show_enter_week_button=True)
+    actions_block = message["blocks"][-1]
+
+    assert len(actions_block["elements"]) == 2
+    enter_week_button = actions_block["elements"][1]
+    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
+    assert enter_week_button["value"] == "2026-07-27"
+
+
 def test_build_neal_street_week_message_mentions_matched_directory_entries():
     directory = {"alice johnson": {"id": "U001", "real_name": "Alice Johnson"}}
     week_entries = [
@@ -575,6 +595,17 @@ def test_build_neal_street_tomorrow_message_ends_with_full_schedule_button():
     assert button["url"] == slack_views.TRACKER_URL
 
 
+def test_build_neal_street_tomorrow_message_has_enter_my_week_button_for_its_own_week():
+    # 2026-07-29 is a Wednesday -- its week starts Monday 2026-07-27
+    message = slack_views.build_neal_street_tomorrow_message("2026-07-29", [])
+    actions_block = message["blocks"][-1]
+
+    enter_week_button = actions_block["elements"][1]
+    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
+    assert enter_week_button["value"] == "2026-07-27"
+
+
 def test_build_neal_street_tomorrow_message_handles_a_weekend_date_without_crashing():
     """Regression test: force=True bypasses the "tomorrow is a weekend" gate
     (see run_tomorrow_digest), so this must accept a Saturday/Sunday date_str
@@ -591,7 +622,7 @@ def test_build_neal_street_today_message_has_friendly_header():
     message = slack_views.build_neal_street_today_message("2026-07-29", [])
     header_text = message["blocks"][0]["text"]["text"]
 
-    assert header_text == ":coffee: Good morning everyone! Here's who's in the office today :point_down:"
+    assert header_text == "*:coffee: Good morning everyone! Here's who's in the office today :point_down:*"
 
 
 def test_build_neal_street_today_message_shows_day_and_mentions():
@@ -631,6 +662,17 @@ def test_build_neal_street_today_message_ends_with_full_schedule_button():
     button = actions_block["elements"][0]
     assert button["text"]["text"] == "See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
+
+
+def test_build_neal_street_today_message_has_enter_my_week_button_for_its_own_week():
+    # 2026-07-29 is a Wednesday -- its week starts Monday 2026-07-27
+    message = slack_views.build_neal_street_today_message("2026-07-29", [])
+    actions_block = message["blocks"][-1]
+
+    enter_week_button = actions_block["elements"][1]
+    assert enter_week_button["text"]["text"] == "📝 Enter My Week"
+    assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
+    assert enter_week_button["value"] == "2026-07-27"
 
 
 # --- slack_routes._handle_location_change (live modal update) ----------------

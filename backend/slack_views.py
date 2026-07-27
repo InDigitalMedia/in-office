@@ -436,6 +436,33 @@ def _ordinal_day(day: int) -> str:
     return f"{day}{suffix}"
 
 
+def _see_full_schedule_button() -> dict:
+    return {
+        # Slack still sends a block_actions payload to our Request URL
+        # even for a "url" button -- action_id/value are set so
+        # _handle_block_action can recognize and ignore it cleanly
+        # instead of crashing on a missing dict key.
+        "type": "button",
+        "text": {"type": "plain_text", "text": "See Full Schedule"},
+        "url": TRACKER_URL,
+        "action_id": ACTION_VIEW_FULL_SCHEDULE,
+        "value": TRACKER_URL,
+    }
+
+
+def _enter_my_week_button(week_start: str) -> dict:
+    """Opens the week modal directly for whoever clicks it, for the given
+    week -- reuses ACTION_FILL_WEEK's existing handler in slack_routes.py
+    (block click still carries a fresh trigger_id, just like the quick-fill
+    DM's "Fill in week" button), so no new routing logic is needed."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "📝 Enter My Week", "emoji": True},
+        "action_id": ACTION_FILL_WEEK,
+        "value": week_start,
+    }
+
+
 def _mention(name: str, directory: dict) -> str:
     """A real Slack mention (<@ID>, renders as a clickable @name pill) if this
     person's normalized name matches the Slack directory, else their plain
@@ -497,14 +524,21 @@ def _format_location_groups(day_rows: list, directory: dict) -> str:
 
 
 def build_neal_street_week_message(
-    week_entries: list, week_start: str, directory: dict | None = None, header_text: str | None = None
+    week_entries: list,
+    week_start: str,
+    directory: dict | None = None,
+    header_text: str | None = None,
+    show_enter_week_button: bool = False,
 ) -> dict:
     """Officely-style summary: each day clearly separated, Neal Street and
     Client Office (the "who's in an office" question people actually ask),
     with a link to the full tracker for anyone who wants the other locations
     too. header_text lets callers reuse this for a different week (e.g. the
     Friday next-week digest) -- defaults to the standard "this week" wording
-    used by the post-submission summary."""
+    used by the post-submission summary. show_enter_week_button adds a second
+    button for whoever's reading to jump straight into entering week_start's
+    locations themselves -- on by default for the next-week digest, off for
+    the post-submission summary (redundant right after someone just submitted)."""
     directory = directory or {}
     header_text = header_text or "Here's who's in the office this week"
     by_date: dict[str, list] = {}
@@ -531,35 +565,28 @@ def build_neal_street_week_message(
             },
         })
 
+    action_elements = [_see_full_schedule_button()]
+    if show_enter_week_button:
+        action_elements.append(_enter_my_week_button(week_start))
+
     blocks.append({"type": "divider"})
-    blocks.append({
-        "type": "actions",
-        "elements": [
-            {
-                # Slack still sends a block_actions payload to our Request URL
-                # even for a "url" button -- action_id/value are set so
-                # _handle_block_action can recognize and ignore it cleanly
-                # instead of crashing on a missing dict key.
-                "type": "button",
-                "text": {"type": "plain_text", "text": "See Full Schedule"},
-                "url": TRACKER_URL,
-                "action_id": ACTION_VIEW_FULL_SCHEDULE,
-                "value": TRACKER_URL,
-            }
-        ],
-    })
+    blocks.append({"type": "actions", "elements": action_elements})
 
     return {"text": header_text, "blocks": blocks}
 
 
-def _build_single_day_neal_street_message(greeting: str, day_label: str, day_rows: list, directory: dict | None = None) -> dict:
+def _build_single_day_neal_street_message(
+    greeting: str, day_label: str, day_rows: list, week_start: str, directory: dict | None = None
+) -> dict:
     """Shared shape for a single-day heads-up (today's 9am digest, tomorrow's
     4pm digest): greeting, divider, a day section with Neal Street/Client
     Office broken out on separate lines (always real @mentions via the Slack
-    directory when available), divider, "See Full Schedule" button."""
+    directory when available), divider, "See Full Schedule" + "Enter My Week"
+    buttons. week_start is the Monday of the week that day belongs to, for the
+    "Enter My Week" button to open the right week's modal."""
     directory = directory or {}
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": greeting}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{greeting}*"}},
         {"type": "divider"},
         {
             "type": "section",
@@ -571,30 +598,27 @@ def _build_single_day_neal_street_message(greeting: str, day_label: str, day_row
         {"type": "divider"},
         {
             "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "See Full Schedule"},
-                    "url": TRACKER_URL,
-                    "action_id": ACTION_VIEW_FULL_SCHEDULE,
-                    "value": TRACKER_URL,
-                }
-            ],
+            "elements": [_see_full_schedule_button(), _enter_my_week_button(week_start)],
         },
     ]
 
     return {"text": greeting, "blocks": blocks}
 
 
+def _week_start_of(date_obj) -> str:
+    monday = date_obj - timedelta(days=date_obj.weekday())
+    return monday.strftime("%Y-%m-%d")
+
+
 def build_neal_street_today_message(date_str: str, day_rows: list, directory: dict | None = None) -> dict:
     """Same visual style as build_neal_street_week_message (bold header, divider,
-    day section, real @mentions, "See Full Schedule" button) but for the
-    single-day 9am same-day digest."""
+    day section, real @mentions, "See Full Schedule" + "Enter My Week" buttons)
+    but for the single-day 9am same-day digest."""
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     weekday_name = WEEKDAY_NAMES[date_obj.weekday()][:3]
     day_header = f"{weekday_name} {_ordinal_day(date_obj.day)}"
     greeting = ":coffee: Good morning everyone! Here's who's in the office today :point_down:"
-    return _build_single_day_neal_street_message(greeting, day_header, day_rows, directory)
+    return _build_single_day_neal_street_message(greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory)
 
 
 def build_neal_street_tomorrow_message(date_str: str, day_rows: list, directory: dict | None = None) -> dict:
@@ -604,4 +628,4 @@ def build_neal_street_tomorrow_message(date_str: str, day_rows: list, directory:
     weekday_name = WEEKDAY_NAMES[date_obj.weekday()][:3]
     day_header = f"{weekday_name} {_ordinal_day(date_obj.day)}"
     greeting = ":wave: Good afternoon everyone! Here's who will be in the office tomorrow :point_down:"
-    return _build_single_day_neal_street_message(greeting, day_header, day_rows, directory)
+    return _build_single_day_neal_street_message(greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory)

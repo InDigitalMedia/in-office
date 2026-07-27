@@ -2,17 +2,19 @@
 
 Triggered by POST /internal/slack/daily-digest, /internal/slack/unfilled-reminders,
 /internal/slack/afternoon-unfilled-reminders, /internal/slack/tomorrow-digest, and
-/internal/slack/next-week-reminder, each called twice by a GitHub Actions cron (once
-per UTC-equivalent of the target London hour).
+/internal/slack/next-week-reminder, called on schedule by cron-job.org (an external
+cron-as-a-service). GitHub Actions previously did this via `schedule:` crons but was
+retired as the live scheduler after it was observed firing hours late (a 9am-targeted
+cron not actually running until 3pm) or not firing at all on a given day; the GitHub
+Actions workflows now only fire manually via workflow_dispatch, for testing.
 
-GitHub Actions' scheduled triggers are best-effort and can fire hours late (observed:
-a 9am-targeted cron not actually running until 3pm) or not fire at all on a given day.
-So each gate below does two things instead of a single exact-hour check:
+Any cron trigger source is treated as best-effort/at-least-once, not exactly-once, so
+each gate below does two things instead of a single exact-hour check:
   1. Accepts any hour within GATE_WINDOW_HOURS of the target, not just the exact hour
      -- catches a late firing while still refusing to send hours after the point a
      digest/reminder would even make sense.
   2. Checks/records a ScheduledRunLog row per job -- guarantees at most one real send
-     per job per day even if multiple firings (the redundant BST/GMT one, a delayed
+     per job per day even if multiple firings (a redundant BST/GMT one, a delayed
      retry, etc.) land inside that widened window on the same day.
 force=True (manual test runs) bypasses both entirely, and neither reads nor writes
 the run log, so testing never blocks or is blocked by the real scheduled send.

@@ -285,6 +285,7 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('fill')
   const [adminUnlocked, setAdminUnlocked] = useState(false)
   const [adminPasswordInput, setAdminPasswordInput] = useState('')
+  const [showAdminPassword, setShowAdminPassword] = useState(false)
   const [adminError, setAdminError] = useState('')
   const [adminChecking, setAdminChecking] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
@@ -2091,14 +2092,24 @@ function App() {
             <form onSubmit={handleAdminPasswordSubmit} style={{ maxWidth: 320 }}>
               <h2>Admin</h2>
               <p>Enter the password to continue.</p>
-              <input
-                type="password"
-                value={adminPasswordInput}
-                onChange={(e) => setAdminPasswordInput(e.target.value)}
-                placeholder="Password"
-                autoFocus
-                style={{ width: '100%', marginBottom: '8px' }}
-              />
+              <div style={{ display: 'flex', gap: 8, marginBottom: '8px' }}>
+                <input
+                  type={showAdminPassword ? 'text' : 'password'}
+                  value={adminPasswordInput}
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  placeholder="Password"
+                  autoFocus
+                  style={{ flex: 1 }}
+                />
+                <button
+                  className="preset-btn"
+                  type="button"
+                  onClick={() => setShowAdminPassword((v) => !v)}
+                  aria-label={showAdminPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showAdminPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
               <button className="save-btn" type="submit" disabled={adminChecking || !adminPasswordInput}>
                 {adminChecking ? 'Checking...' : 'Unlock'}
               </button>

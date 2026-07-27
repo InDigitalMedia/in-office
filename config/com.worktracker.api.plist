@@ -6,7 +6,7 @@
     <string>com.worktracker.api</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Library/Frameworks/Python.framework/Versions/3.14/bin/python3</string>
+        <string>/Users/camdoherty/Library/CloudStorage/OneDrive-InDigitalMarketing/Documents/VSC/work-location-tracker/backend/.venv/bin/python3</string>
         <string>-m</string>
         <string>uvicorn</string>
         <string>app:app</string>

@@ -235,6 +235,13 @@ def _build_day_blocks(week_start: str, day_state: dict) -> list:
         state = day_state.get(offset, {})
         split = bool(state.get("split"))
 
+        if offset > 0:
+            # Block Kit gives every input block the same fixed vertical gap, so
+            # without this, one day's last field and the next day's date look
+            # exactly as close together as two fields within the same day --
+            # a divider is the only way to visually separate one day from the next.
+            blocks.append({"type": "divider"})
+
         split_block = {
             "type": "input",
             "block_id": f"day_{offset}_split",

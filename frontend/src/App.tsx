@@ -1145,9 +1145,11 @@ function App() {
     location: WorkLocation | undefined,
     client: string | undefined,
     isCustom: boolean | undefined,
-    onChange: (client: string) => void
+    onChange: (client: string) => void,
+    variant: 'table' | 'card' = 'table'
   ) => {
-    if (!location) return <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>N/A</span>
+    const naPlaceholder = variant === 'card' ? null : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>N/A</span>
+    if (!location) return naPlaceholder
     if (location === 'Client Office') {
       return isCustom ? (
         <input
@@ -1177,7 +1179,7 @@ function App() {
         />
       )
     }
-    return <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>N/A</span>
+    return naPlaceholder
   }
 
   return (
@@ -1571,7 +1573,8 @@ function App() {
                             entry.morningLocation,
                             entry.morningClient,
                             entry.morningIsCustomClient,
-                            (c) => handleClientChange(index, c, 'morning')
+                            (c) => handleClientChange(index, c, 'morning'),
+                            'card'
                           )}
                           <input
                             type="text"
@@ -1588,7 +1591,8 @@ function App() {
                             entry.afternoonLocation,
                             entry.afternoonClient,
                             entry.afternoonIsCustomClient,
-                            (c) => handleClientChange(index, c, 'afternoon')
+                            (c) => handleClientChange(index, c, 'afternoon'),
+                            'card'
                           )}
                           <input
                             type="text"
@@ -1614,7 +1618,8 @@ function App() {
                           entry.location,
                           entry.client,
                           entry.isCustomClient,
-                          (c) => handleClientChange(index, c)
+                          (c) => handleClientChange(index, c),
+                          'card'
                         )}
                         <input
                           type="text"
@@ -1893,7 +1898,7 @@ function App() {
                     { emoji: '✈️', count: workingFromAbroadCount, label: 'Working From Abroad' },
                     { emoji: '🌴', count: holidayCount, label: 'Holiday' },
                     { emoji: '📝', count: otherCount, label: 'Other' },
-                    { emoji: '❓', count: notEnteredCount, label: 'not entered' },
+                    { emoji: '❓', count: notEnteredCount, label: 'Not entered' },
                   ].filter(item => item.count > 0)
 
                   return (

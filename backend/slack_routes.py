@@ -226,7 +226,27 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
         prefill = _build_prefill_from_last_week(session, user_key, week_start)
         if not prefill:
             if response_url:
-                slack_client.respond_via_response_url(response_url, "No matching entries found last week -- try Fill in week instead.")
+                # respond_via_response_url replaces the original message (including
+                # its buttons) by default -- a text-only reply here would strand the
+                # user with no way to act on "try Fill in week instead" without
+                # re-running /enter-week from scratch, so it needs its own working
+                # "Fill in week" button, not just the suggestion in prose.
+                text = "No matching entries found last week -- try Fill in week instead."
+                blocks = [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "✏️ Fill in week", "emoji": True},
+                                "action_id": slack_views.ACTION_FILL_WEEK,
+                                "value": week_start,
+                            },
+                        ],
+                    },
+                ]
+                slack_client.respond_via_response_url(response_url, text, blocks=blocks)
             return Response(status_code=200)
 
         view = slack_views.build_week_modal(week_start, resolved_name, prefill, title="Same as last week")

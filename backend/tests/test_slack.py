@@ -826,6 +826,11 @@ def test_same_as_last_week_carries_over_a_split_day_in_the_modal(monkeypatch):
 
 
 def test_same_as_last_week_with_no_full_day_entries_responds_without_opening_modal(monkeypatch):
+    """Regression test: the "no matching entries" reply used to be text-only,
+    which replaces the original message (via response_url's default
+    replace_original=True) and strands the user with no button to act on
+    "try Fill in week instead" -- it must include a working Fill in week
+    button, not just the suggestion in prose."""
     monkeypatch.setattr(slack_routes, "_resolve_identity", lambda user_id: ("Alice Johnson", True))
     monkeypatch.setattr(
         slack_routes.queries, "get_last_week_entries_for_user", lambda session, user_key, week_start: {}
@@ -838,7 +843,9 @@ def test_same_as_last_week_with_no_full_day_entries_responds_without_opening_mod
 
     responded = {}
     monkeypatch.setattr(
-        slack_client, "respond_via_response_url", lambda url, text, **kw: responded.update(text=text)
+        slack_client,
+        "respond_via_response_url",
+        lambda url, text, **kw: responded.update(text=text, blocks=kw.get("blocks")),
     )
 
     payload = {
@@ -853,6 +860,10 @@ def test_same_as_last_week_with_no_full_day_entries_responds_without_opening_mod
     assert response.status_code == 200
     assert open_view_called["called"] is False
     assert "Fill in week" in responded["text"]
+
+    actions_block = next(b for b in responded["blocks"] if b["type"] == "actions")
+    fill_button = next(e for e in actions_block["elements"] if e["action_id"] == slack_views.ACTION_FILL_WEEK)
+    assert fill_button["value"] == "2026-07-27"
 
 
 def test_handle_block_action_url_button_does_not_crash():

@@ -1934,7 +1934,7 @@ function App() {
                   const workingFromAbroadCount = new Set(dayAllEntries.filter(e => e.location === 'Working From Abroad').map(e => e.user_name)).size
                   const holidayCount = new Set(dayAllEntries.filter(e => e.location === 'Holiday').map(e => e.user_name)).size
                   const otherCount = new Set(dayAllEntries.filter(e => e.location === 'Other').map(e => e.user_name)).size
-                  const notEnteredCount = allUsers.length - enteredUsers.size
+                  const notEnteredCount = allUsers.filter((user: string) => !enteredUsers.has(user)).length
 
                   const attendanceItems = [
                     { emoji: '🏢', count: nealStreetCount, label: 'Neal Street' },

@@ -1,89 +1,35 @@
-# Work Location Tracker
+# In Office
 
-A beautiful web application to track where your team members are working (Neal Street, WFH, Client Office, Working From Abroad, Holiday, Other) throughout the week.
+A web app for tracking where team members are working each day — Neal Street, Client Office, WFH, Working From Abroad, Holiday, or Other — filled in from the web app or directly from Slack.
 
-## 🌟 Features
+## Features
 
-- 📊 **Beautiful black-themed UI** - modern and professional
-- 📅 **Week view dashboard** - see everyone's locations by day
-- 👥 **Grouped by location** - Neal Street, WFH, Client Office, Working From Abroad, Holiday, Other
-- 🔄 **Real-time updates** - instant save and refresh
-- 📱 **Mobile responsive** - works on all devices
-- 🆓 **100% free to use** - no costs, no accounts needed
+- 📅 **Week-view dashboard** — everyone's location grouped by day and location, with headcounts
+- ✂️ **Split days** — a day can be split into morning/afternoon, each with its own location
+- 💬 **Slack integration** — `/enter-week` slash command, daily reminder DMs, and a "who's in the office" channel digest, all without leaving Slack (see below)
+- 🔒 **Password-gated Admin tab** in the web app
+- 👥 **Client and team-member rosters** (`frontend/public/clients.json`, `frontend/public/team-members.json`) — kept alphabetically sorted, see `CLAUDE.md`
+- 📱 Mobile responsive, light/dark theme
 
-## 🚀 Quick Start
+## Quick Start
 
-### Local Development
-
-```bash
-# Start backend
-cd backend
-pip install -r requirements.txt
-uvicorn app:app --reload --port 8001
-
-# Start frontend (in new terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-Visit http://localhost:5173
-
-### Using PM2 (Continuous Running)
+### Local development (no Docker)
 
 ```bash
-# Start both services
-pm2 start ecosystem.config.js
-
-# Check status
-pm2 status
-
-# View logs
-pm2 logs
-
-# Stop services
-pm2 stop all
-```
-
-## 🌐 Free Hosting
-
-See [docs/HOSTING_GUIDE.md](docs/deployment/HOSTING_GUIDE.md) for detailed instructions on deploying to:
-- **Frontend**: Vercel (free forever)
-- **Backend**: Render (free tier)
-
-## 📖 Usage
-
-1. **Fill your week**: Enter your name and select work locations for each day
-2. **Save**: Click "Save my week" to store your entries
-3. **View dashboard**: Switch to "Who's where" to see everyone's locations grouped by day and location type
-4. **Change weeks**: Use the week selector to navigate between different weeks
-
-## 🛠️ Tech Stack
-
-- **Backend**: Python 3.11, FastAPI, SQLModel, PostgreSQL/SQLite
-- **Frontend**: React, TypeScript, Vite
-- **Styling**: CSS with glassmorphism effects
-- **Deployment**: Vercel + Render (free hosting with persistent PostgreSQL)
-
-A web application for tracking where team members will work each day of the week.
-
-## Quick Start (Local without Docker)
-
-### Backend
-```bash
+# Backend
 cd backend
 pip install -r requirements.txt
 uvicorn app:app --reload --host 0.0.0.0 --port 8001
-```
 
-### Frontend
-```bash
+# Frontend (new terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-## Quick Start (Docker)
+Visit http://localhost:5173 — backend API at http://localhost:8001 (docs at `/docs`).
+
+### Docker
 
 ```bash
 docker-compose up --build
@@ -91,44 +37,69 @@ docker-compose up --build
 
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8001
-- API Documentation: http://localhost:8001/docs
 
-## Week Logic
+### PM2 (keep both running continuously)
 
-The application automatically snaps any selected date to the Monday of that week. When you change the week date, both the 7-day form and dashboard summary are regenerated.
+```bash
+pm2 start ecosystem.config.js
+pm2 status
+pm2 logs
+pm2 stop all
+```
+
+See [docs/RUNNING_GUIDE.md](docs/RUNNING_GUIDE.md) for the full PM2 workflow, including auto-start on boot.
 
 ## Environment Configuration
 
-- Backend: No environment variables required for local development
-- Frontend: Copy `.env.example` to `.env` and adjust `VITE_API_BASE` if needed
+- **Frontend**: copy `frontend/env.example` to `.env` and adjust `VITE_API_BASE` if needed.
+- **Backend**: no environment variables are required to run locally. Everything below is optional and only needed to enable specific production features:
+
+| Variable | Enables |
+|---|---|
+| `ADMIN_SECRET` | Admin-only API endpoints |
+| `ADMIN_TAB_PASSWORD` | The web app's password-gated Admin tab |
+| `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `SLACK_GENERAL_CHANNEL_ID`, `SLACK_SCHEDULER_SECRET` | The Slack integration — see [docs/SLACK_INTEGRATION.md](docs/SLACK_INTEGRATION.md) |
+| `DATABASE_URL` | PostgreSQL in production (falls back to local SQLite when unset; refuses to start on SQLite in production) |
+| `ROSTER_URL`, `CLIENTS_URL` | Override where the backend fetches `team-members.json`/`clients.json` from (defaults to the live frontend deployment) |
+
+## Slack Integration
+
+Fill in your week and see who's at Neal Street without leaving Slack:
+
+- **`/enter-week`** slash command opens a modal to fill your week (with per-day split support)
+- **Daily reminder DMs** (morning + an afternoon "last call" nudge) to anyone who hasn't filled in yet
+- **Daily office digest** to a channel — who's in today, and a separate one for tomorrow/next week
+- **Week summary DM** after saving, showing who else is in each day that week
+
+Full setup, credentials, ownership handover, and troubleshooting: [docs/SLACK_INTEGRATION.md](docs/SLACK_INTEGRATION.md).
+
+## Documentation
+
+- [docs/HOW_TO_USE.md](docs/HOW_TO_USE.md) — using the app
+- [docs/RUNNING_GUIDE.md](docs/RUNNING_GUIDE.md) — running it continuously with PM2
+- [docs/deployment/](docs/deployment/) — deployment guides
+- [docs/SLACK_INTEGRATION.md](docs/SLACK_INTEGRATION.md) — Slack setup, credentials, and ownership
+- [CHANGELOG.md](CHANGELOG.md) — notable changes
+- [HANDOVER.md](HANDOVER.md) — account/ownership handover checklist
+
+## Tech Stack
+
+- **Backend**: Python 3.11, FastAPI, SQLModel, PostgreSQL/SQLite
+- **Frontend**: React, TypeScript, Vite
+- **Deployment**: Vercel (frontend) + Render (backend)
+- **Scheduling**: cron-job.org triggers the Slack digest/reminder endpoints
 
 ## Development Commands
 
 ### Backend
-```bash
-# Format and lint
-ruff check . && black .
 
-# Run tests
+```bash
+ruff check . && black .
 pytest -q
 ```
 
 ### Frontend
+
 ```bash
-# Format and lint
 npm run lint && npm run format
 ```
-
-## Deployment Notes
-
-- **Backend**: Deploy to Render, Railway, or similar. Set CORS origins for production domain.
-- **Frontend**: Deploy to Vercel, Netlify, or similar. Set `VITE_API_BASE` to your production API URL.
-
-## Features
-
-- Submit work location for entire week at once
-- View team dashboard showing where everyone is each day
-- Support for Neal Street, WFH, Client Office, Working From Abroad, Holiday, and Other locations
-- Client name required when "Client Office" or "Other" location is selected
-- Optional notes field for each day
-- Responsive design with accessible form controls

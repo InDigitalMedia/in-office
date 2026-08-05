@@ -169,7 +169,6 @@ def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state:
         select_block = {
             "type": "input",
             "block_id": f"client_select_{block_id_suffix}",
-            "optional": True,
             "dispatch_action": True,
             "label": {"type": "plain_text", "text": sub_label_fn("Client")},
             "element": {
@@ -190,7 +189,6 @@ def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state:
             custom_block = {
                 "type": "input",
                 "block_id": f"client_custom_{block_id_suffix}",
-                "optional": True,
                 "label": {"type": "plain_text", "text": sub_label_fn("Client name")},
                 "element": {"type": "plain_text_input", "action_id": "text"},
             }
@@ -202,7 +200,6 @@ def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state:
         text_block = {
             "type": "input",
             "block_id": f"client_{block_id_suffix}",
-            "optional": True,
             "label": {"type": "plain_text", "text": sub_label_fn("Description")},
             "element": {"type": "plain_text_input", "action_id": "text"},
         }

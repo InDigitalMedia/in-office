@@ -6,7 +6,7 @@
    /enter-week itself skips straight to the modal (see slack_routes.py) since a
    slash command already has a fresh trigger_id.
 2. build_week_modal / parse_week_submission -- the day-by-day entry form. Each
-   day has a "Split into morning/afternoon" checkbox; unchecked (the default)
+   day has a "Split day" checkbox; unchecked (the default)
    shows one location field, checked shows two (morning/afternoon), each
    independently able to be any location including Client Office/Other with
    their own client/description sub-field. _build_day_blocks is the single
@@ -211,7 +211,7 @@ def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state:
 
 
 _SPLIT_DAY_CHECKBOX_OPTION = {
-    "text": {"type": "plain_text", "text": "Split into morning/afternoon"},
+    "text": {"type": "plain_text", "text": "Split day"},
     "value": SPLIT_DAY_CHECKBOX_VALUE,
 }
 
@@ -219,8 +219,8 @@ _SPLIT_DAY_CHECKBOX_OPTION = {
 def _build_day_blocks(week_start: str, day_state: dict) -> list:
     """day_state: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}},
     where each of full/morning/afternoon is {"location": str|None, "client_choice":
-    str|None, "text": str|None}. Every day gets a "Split into morning/afternoon"
-    checkbox; unchecked (the default) renders one location field ("full"),
+    str|None, "text": str|None}. Every day gets a "Split day" checkbox;
+    unchecked (the default) renders one location field ("full"),
     checked renders two independent ones ("morning"/"afternoon"), each with its
     own conditional Client Office/Other sub-field.
 

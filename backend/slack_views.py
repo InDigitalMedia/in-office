@@ -239,12 +239,24 @@ def _build_day_blocks(week_start: str, day_state: dict) -> list:
             # a divider is the only way to visually separate one day from the next.
             blocks.append({"type": "divider"})
 
+        # Day heading is its own display-only block (not an "input") so Slack's
+        # auto-appended "(optional)" tag -- required on the checkbox below, since
+        # nobody should be forced to tick "split" just to submit -- lands next to
+        # the split checkbox itself, not next to the day name (which would read
+        # as "this whole day is optional", when the Location field right below
+        # it is in fact still required).
+        blocks.append({
+            "type": "section",
+            "block_id": f"day_{offset}_heading",
+            "text": {"type": "mrkdwn", "text": f"*{_day_label(week_start, offset)}*"},
+        })
+
         split_block = {
             "type": "input",
             "block_id": f"day_{offset}_split",
             "optional": True,
             "dispatch_action": True,
-            "label": {"type": "plain_text", "text": _day_label(week_start, offset)},
+            "label": {"type": "plain_text", "text": "Split this day into morning/afternoon?"},
             "element": {
                 "type": "checkboxes",
                 "action_id": SPLIT_DAY_ACTION_ID,

@@ -381,7 +381,7 @@ def test_build_day_blocks_separates_days_with_dividers():
     assert blocks[-1]["type"] != "divider"
     assert sum(1 for b in blocks if b["type"] == "divider") == 4
 
-    day_starts = [i for i, b in enumerate(blocks) if b.get("block_id", "").endswith("_split")]
+    day_starts = [i for i, b in enumerate(blocks) if b.get("block_id", "").endswith("_heading")]
     assert len(day_starts) == 5
     for start in day_starts[1:]:
         assert blocks[start - 1]["type"] == "divider"

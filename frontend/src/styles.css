@@ -6,9 +6,12 @@
  *    brand-magenta #c62877  brand-yellow #e1ab01
  *    white/light-gray surfaces, dark text, subtle soft shadows.
  *
- *  DARK (on :root[data-theme="dark"]): the original "neon terminal" theme
- *    near-black surfaces (#0d0d0d / #0a0a0a), faint dotted grid, bright white
- *    1-2px borders, neon glow box-shadows, neon location badges.
+ *  DARK (on :root[data-theme="dark"]): soft dark-navy theme
+ *    deep navy surfaces (#0b1220 page / #141d33 card / #1c2740 hover), faint
+ *    blue-tinted grid, subtle blue-gray borders (#2a3752 / #33425f), soft dark
+ *    shadows (no glows), cool off-white text (#e8ecf3) on blue-gray steps,
+ *    UI blue #3d7dff for selected/primary/focus chrome, and the same bright
+ *    location badge colors as before (they carry location meaning).
  *
  * The theme is toggled by App.tsx setting the `data-theme` attribute on
  * <html> (document.documentElement). Every theme-dependent color / border /
@@ -218,139 +221,153 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg-body: #0d0d0d;
+  /* Navy scale (darkest -> lightest):
+       #0b1220 page  #0f1729 input  #141d33 surface  #182338 raised
+       #1c2740 hover  #24314d elevated
+     Borders: #243149 subtle  #2a3752 default  #33425f input  #3d4d6e strong
+     UI blue (interactive chrome only -- deliberately NOT the brand cyan
+     #00adcd / neon --accent-wfh cyan, so "selected/primary" never reads as a
+     WFH location): #3d7dff base, #5b93ff hover/focus. */
+
+  --bg-body: #0b1220;
+  /* Same faint grid as before, tinted blue instead of white so it disappears
+     into the navy rather than reading as gray speckle. */
   --bg-body-image:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(0deg, rgba(148, 176, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 176, 255, 0.03) 1px, transparent 1px);
   --bg-body-size: 50px 50px;
-  --bg-surface: #0a0a0a;
-  --bg-surface-hover: #1a1a1a;
-  --bg-muted: #1a1a1a;
-  --bg-input: #000000;
-  --bg-input-disabled: rgba(60, 60, 60, 0.5);
+  --bg-surface: #141d33;
+  --bg-surface-hover: #1c2740;
+  --bg-muted: #1a2337;
+  --bg-input: #0f1729;
+  --bg-input-disabled: #161d2e;
 
-  --text-primary: #ffffff;
-  --text-heading: #ffffff;
-  --text-secondary: #ffffff;
-  --text-subtle: rgba(255, 255, 255, 0.9);
-  --text-muted: #cccccc;
-  --text-faint: #999999;
+  --text-primary: #e8ecf3;
+  --text-heading: #f2f5fa;
+  --text-secondary: #d3dae7;
+  --text-subtle: #bfc8d9;
+  --text-muted: #97a1b5;
+  --text-faint: #7d879c;
 
-  --border-color: #ffffff;
-  --border-card: 1px solid #ffffff;
-  --border-panel: 1px solid rgba(255, 255, 255, 0.2);
-  --border-input: 1px solid #ffffff;
-  --border-input-color: #ffffff;
-  --border-soft: 1px solid #555555;
-  --border-subtle-color: rgba(255, 255, 255, 0.1);
-  --divider-soft: rgba(255, 255, 255, 0.2);
-  --h3-border: 1px solid #666666;
+  --border-color: #2a3752;
+  --border-card: 1px solid #2a3752;
+  --border-panel: 1px solid #243149;
+  --border-input: 1px solid #33425f;
+  --border-input-color: #33425f;
+  --border-soft: 1px solid #26324b;
+  --border-subtle-color: rgba(255, 255, 255, 0.06);
+  --divider-soft: #243149;
+  --h3-border: 1px solid #2a3752;
 
-  --shadow-card: 0 0 20px rgba(255, 255, 255, 0.1);
-  --shadow-header: 0 0 20px rgba(255, 255, 255, 0.1), 0 8px 32px rgba(0, 0, 0, 0.8);
-  --shadow-panel: 0 0 10px rgba(255, 255, 255, 0.1);
-  --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-toast: 0 0 20px rgba(255, 255, 255, 0.3);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-header: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.5);
 
-  --accent-focus: #ffffff;
-  --focus-ring: 0 0 15px rgba(255, 255, 255, 0.5);
+  --accent-focus: #5b93ff;
+  --focus-ring: 0 0 0 3px rgba(61, 125, 255, 0.25);
 
-  --logo-filter: brightness(1.1);
-  --logo-filter-hover: brightness(1.2);
+  --logo-filter: none;
+  --logo-filter-hover: none;
   /* The logo is almost entirely black fill -- a border alone just outlines it
-     without giving the shape itself any contrast against the near-black page
+     without giving the shape itself any contrast against the dark page
      background, so it still reads as "gone". A light background behind it
      gives the actual black icon shape something to contrast against. */
   --logo-border: 1px solid var(--border-color);
   --logo-bg: #ffffff;
-  --heading-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --heading-shadow: none;
 
-  --btn-bg: #000000;
-  --btn-text: #ffffff;
-  --btn-border: 1px solid #ffffff;
-  --btn-hover-bg: #333333;
-  --btn-hover-text: #ffffff;
-  --btn-hover-border: #ffffff;
-  --btn-hover-shadow: 0 4px 10px rgba(255, 255, 255, 0.15);
+  --btn-bg: #182338;
+  --btn-text: #d3dae7;
+  --btn-border: 1px solid #2f3d5a;
+  --btn-hover-bg: #22304c;
+  --btn-hover-text: #f2f5fa;
+  --btn-hover-border: #3d4d6e;
+  --btn-hover-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   --btn-hover-transform: translateY(-2px);
-  --btn-active-bg: #ffffff;
-  --btn-active-text: #000000;
-  --btn-active-border: #ffffff;
-  --btn-active-shadow: 0 0 8px rgba(255, 255, 255, 0.3), 0 2px 8px rgba(255, 255, 255, 0.2);
-  --btn-active-hover-bg: #ffffff;
-  --btn-active-hover-border: #ffffff;
+  /* Selected state = bright UI blue fill with near-black navy text, matching
+     the app's "dark text on a bright fill" pattern used by location badges. */
+  --btn-active-bg: #3d7dff;
+  --btn-active-text: #0b1220;
+  --btn-active-border: #3d7dff;
+  --btn-active-shadow: 0 2px 8px rgba(61, 125, 255, 0.35);
+  --btn-active-hover-bg: #5b93ff;
+  --btn-active-hover-border: #5b93ff;
 
-  --btn-highlight-color: #ffffff;
-  --btn-highlight-hover-bg: #ffffff;
-  --btn-highlight-hover-text: #000000;
+  --btn-highlight-color: #5b93ff;
+  --btn-highlight-hover-bg: #3d7dff;
+  --btn-highlight-hover-text: #0b1220;
 
-  --save-bg: #000000;
-  --save-text: #ffffff;
-  --save-border: #ffffff;
-  --save-hover-bg: #333333;
-  --save-hover-text: #ffffff;
-  --save-hover-border: #ffffff;
-  --save-hover-shadow: 0 4px 10px rgba(255, 255, 255, 0.15);
-  --save-disabled-bg: #000000;
-  --save-disabled-text: #666666;
-  --save-disabled-border: #333333;
+  --save-bg: #3d7dff;
+  --save-text: #0b1220;
+  --save-border: #3d7dff;
+  --save-hover-bg: #5b93ff;
+  --save-hover-text: #0b1220;
+  --save-hover-border: #5b93ff;
+  --save-hover-shadow: 0 4px 12px rgba(61, 125, 255, 0.35);
+  --save-disabled-bg: #182338;
+  --save-disabled-text: #6f7a90;
+  --save-disabled-border: #2a3752;
 
-  --toast-bg: #000000;
-  --toast-text: #ffffff;
-  --toast-border: #ffffff;
+  --toast-bg: #1c2740;
+  --toast-text: #e8ecf3;
+  --toast-border: #33425f;
 
-  --week-thead-bg: #1a1a1a;
-  --week-thead-text: #a8a8a8;
-  --summary-thead-bg: linear-gradient(135deg, #333333 0%, #1a1a1a 100%);
-  --summary-thead-text: #ffffff;
-  --summary-thead-border: 1px solid #444444;
-  --row-hover-bg: #1a1a1a;
+  --week-thead-bg: #1a2337;
+  --week-thead-text: #97a1b5;
+  --summary-thead-bg: linear-gradient(135deg, #24314d 0%, #161f36 100%);
+  --summary-thead-text: #e8ecf3;
+  --summary-thead-border: 1px solid #2f3d5a;
+  --row-hover-bg: #1c2740;
 
-  --locgroup-bg: rgba(255, 255, 255, 0.1);
-  --locgroup-border: 1px solid rgba(255, 255, 255, 0.15);
+  --locgroup-bg: #182338;
+  --locgroup-border: 1px solid #26324b;
 
-  --attbar-bg: rgba(255, 255, 255, 0.05);
-  --attbar-border: 1px solid rgba(255, 255, 255, 0.12);
-  --attbar-dot: #555555;
+  --attbar-bg: #131c30;
+  --attbar-border: 1px solid #26324b;
+  --attbar-dot: #33425f;
 
   --daynav-bg: transparent;
-  --daynav-text: #cccccc;
-  --daynav-border: 1px solid #555555;
-  --daynav-hover-bg: rgba(255, 255, 255, 0.08);
-  --daynav-hover-fg: #ffffff;
-  --daynav-active-bg: #ffffff;
-  --daynav-active-text: #000000;
-  --daynav-active-border: #ffffff;
+  --daynav-text: #bfc8d9;
+  --daynav-border: 1px solid #2f3d5a;
+  --daynav-hover-bg: #1c2740;
+  --daynav-hover-fg: #f2f5fa;
+  --daynav-active-bg: #3d7dff;
+  --daynav-active-text: #0b1220;
+  --daynav-active-border: #3d7dff;
 
-  --person-card-bg: rgba(45, 45, 45, 0.8);
-  --person-card-border: 1px solid #555555;
-  --person-card-hover-bg: rgba(60, 60, 60, 0.8);
-  --person-card-hover-border: #666666;
+  --person-card-bg: #182338;
+  --person-card-border: 1px solid #2a3752;
+  --person-card-hover-bg: #1f2b45;
+  --person-card-hover-border: #3d4d6e;
 
-  --usercard-bg: #0a0a0a;
-  --usercard-border: 1px solid #ffffff;
-  --usercard-hover-bg: #ffffff;
-  --usercard-hover-text: #000000;
-  --usercard-hover-border: #ffffff;
-  --usercard-current-border: #ffffff;
-  --usercard-current-text: #ffffff;
-  --usercard-current-ring: none;
-  --usercard-current-hover-bg: #ffffff;
-  --usercard-current-hover-text: #000000;
+  --usercard-bg: #141d33;
+  --usercard-border: 1px solid #2a3752;
+  --usercard-hover-bg: #1f2b45;
+  --usercard-hover-text: #f2f5fa;
+  --usercard-hover-border: #3d7dff;
+  --usercard-current-border: #3d7dff;
+  --usercard-current-text: #e8ecf3;
+  --usercard-current-ring: 0 0 0 2px rgba(61, 125, 255, 0.22);
+  --usercard-current-hover-bg: #3d7dff;
+  --usercard-current-hover-text: #0b1220;
 
-  --today-bg: rgba(15, 15, 15, 0.95);
-  --today-border: rgba(255, 255, 255, 0.9);
-  --today-ring: 0 0 10px rgba(255, 255, 255, 0.25), 0 0 20px rgba(255, 255, 255, 0.15);
+  --today-bg: #16233d;
+  --today-border: #3d7dff;
+  --today-ring: 0 0 0 3px rgba(61, 125, 255, 0.18);
 
-  --skeleton-bar: rgba(255, 255, 255, 0.12);
-  --skeleton-card: rgba(255, 255, 255, 0.08);
+  --skeleton-bar: #24314d;
+  --skeleton-card: #1a2337;
 
-  --warn-bg: #1a1600;
+  /* Warning / error backgrounds are translucent accent tints so they pick up
+     the navy underneath instead of introducing an off-palette solid block. */
+  --warn-bg: rgba(255, 214, 0, 0.1);
   --warn-border: #ffd600;
   --warn-text: #ffe680;
-  --warn-shadow: 0 0 15px rgba(255, 214, 0, 0.4);
+  --warn-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 
-  --error-bg: rgba(100, 0, 0, 0.3);
+  --error-bg: rgba(255, 59, 48, 0.14);
   --error-border: #ff3b30;
   --error-text: #ffb3ae;
 
@@ -358,28 +375,34 @@
   --danger-border: #ff3b30;
   --danger-text: #ffffff;
 
-  --pill-bg: rgba(255, 255, 255, 0.06);
-  --pill-border: 1px solid rgba(255, 255, 255, 0.12);
-  --pill-text: rgba(255, 255, 255, 0.6);
+  --pill-bg: #1a2337;
+  --pill-border: 1px solid #2a3752;
+  --pill-text: #97a1b5;
 
-  --greenpill-bg: rgba(255, 255, 255, 0.08);
-  --greenpill-border: #ffffff;
-  --greenpill-text: #ffffff;
+  /* Green confirm pill: was white-on-white in the old theme, which lost the
+     "green = confirmed" meaning the light theme carries. */
+  --greenpill-bg: rgba(77, 222, 106, 0.12);
+  --greenpill-border: #4cd964;
+  --greenpill-text: #a6efb4;
 
-  --split-tint: rgba(184, 134, 11, 0.08);
-  --split-border: #b8860b;
+  --split-tint: rgba(255, 214, 0, 0.06);
+  --split-border: #c9971a;
 
-  --select-bg: #1a1a1a;
-  --select-text: #ffffff;
-  --select-border: 1px solid rgba(255, 255, 255, 0.3);
+  --select-bg: #0f1729;
+  --select-text: #e8ecf3;
+  --select-border: 1px solid #33425f;
 
+  /* Location accents + badges below are intentionally left at their original
+     bright values -- they carry location meaning and read fine against navy.
+     Only --accent-default (a neutral gray, not a location color) is retuned to
+     sit in the navy family instead of looking like leftover black-theme gray. */
   --accent-office: #39ff14;
   --accent-wfh: #00e5ff;
   --accent-client: #ffd600;
   --accent-holiday: #ff00ff;
   --accent-abroad: #bb86fc;
   --accent-other: #ff7043;
-  --accent-default: #555555;
+  --accent-default: #4a5a78;
 
   --loc-badge-border-width: 1px;
   --loc-office-bg: #39ff14;  --loc-office-text: #000000;  --loc-office-glow: none;
@@ -1478,7 +1501,9 @@ select {
 }
 
 :root[data-theme="dark"] select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23ffffff' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  /* Arrow fill = dark theme's --text-muted (#97a1b5); can't reference a CSS
+     variable from inside the data-URI, so it's duplicated here. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2397a1b5' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
 }
 
 select:focus {

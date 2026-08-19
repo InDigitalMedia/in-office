@@ -252,20 +252,19 @@
   --bg-input: #181b20;
   --bg-input-disabled: #1e2126;
 
-  /* Text scale. Deliberately NOT near-white: body/label text sits at a soft
-     light gray (#d5d8dc / #c4c8ce) and only --text-heading stays bright, so
-     "emphasized" reads as brighter than its surroundings rather than everything
-     shouting at once. --text-muted is the dimmest tone still used for real
-     information (11px uppercase table headers, the "Not Entered" badge) so it
-     stops at AA (>=4.5:1) against the surface/muted grays instead of going as
-     dim as it could purely visually; --text-faint is disabled-state only, so it
-     is allowed below AA. */
-  --text-primary: #d5d8dc;
+  /* Text scale. Brightened for legibility -- body/label text sits at a light
+     gray (#e8eaed / #d6d9de) and --text-heading stays the brightest tone, so
+     "emphasized" still reads as a step up from body text without body text
+     itself being hard to read. --text-muted is the dimmest tone still used for
+     real information (11px uppercase table headers, the "Not Entered" badge)
+     so it stops well above AA (>=4.5:1) against the surface/muted grays;
+     --text-faint is disabled-state only, so it's allowed to sit lower. */
+  --text-primary: #e8eaed;
   --text-heading: #f5f6f7;
-  --text-secondary: #c4c8ce;
-  --text-subtle: #aeb3bb;
-  --text-muted: #8b919b;
-  --text-faint: #6d7380;
+  --text-secondary: #d6d9de;
+  --text-subtle: #c2c6cc;
+  --text-muted: #9da2ab;
+  --text-faint: #7d8290;
 
   /* Card/input edges stay solid (they define a box). Dividers and hairlines are
      translucent white instead, so they read as a barely-there seam that scales
@@ -301,7 +300,7 @@
   --heading-shadow: none;
 
   --btn-bg: #24272d;
-  --btn-text: #c4c8ce;
+  --btn-text: #d6d9de;
   --btn-border: 1px solid #3e424b;
   --btn-hover-bg: #32353d;
   --btn-hover-text: #f5f6f7;
@@ -334,13 +333,13 @@
   --save-disabled-border: #383c44;
 
   --toast-bg: #292c32;
-  --toast-text: #d5d8dc;
+  --toast-text: #e8eaed;
   --toast-border: #424650;
 
   --week-thead-bg: #24272d;
-  --week-thead-text: #8b919b;
+  --week-thead-text: #9da2ab;
   --summary-thead-bg: linear-gradient(135deg, #33373e 0%, #21242b 100%);
-  --summary-thead-text: #d5d8dc;
+  --summary-thead-text: #e8eaed;
   --summary-thead-border: 1px solid #3e424b;
   --row-hover-bg: #292c32;
 
@@ -354,7 +353,7 @@
   --attbar-dot: #424650;
 
   --daynav-bg: transparent;
-  --daynav-text: #aeb3bb;
+  --daynav-text: #c2c6cc;
   --daynav-border: 1px solid #3e424b;
   --daynav-hover-bg: #292c32;
   --daynav-hover-fg: #f5f6f7;
@@ -373,7 +372,7 @@
   --usercard-hover-text: #f5f6f7;
   --usercard-hover-border: #5487d4;
   --usercard-current-border: #5487d4;
-  --usercard-current-text: #d5d8dc;
+  --usercard-current-text: #e8eaed;
   --usercard-current-ring: 0 0 0 2px rgba(84, 135, 212, 0.22);
   --usercard-current-hover-bg: #5487d4;
   --usercard-current-hover-text: #131519;
@@ -408,7 +407,7 @@
      read as distinct chips instead of flush with the panel behind them. */
   --pill-bg: #2f333a;
   --pill-border: 1px solid #454a54;
-  --pill-text: #aeb3bb;
+  --pill-text: #c2c6cc;
 
   /* Green confirm pill: was white-on-white in the old theme, which lost the
      "green = confirmed" meaning the light theme carries. */
@@ -420,7 +419,7 @@
   --split-border: #c9971a;
 
   --select-bg: #181b20;
-  --select-text: #d5d8dc;
+  --select-text: #e8eaed;
   --select-border: 1px solid #424650;
 
   /* Location accents + badges below are intentionally left at their original
@@ -1532,9 +1531,9 @@ select {
 }
 
 :root[data-theme="dark"] select {
-  /* Arrow fill = dark theme's --text-muted (#8b919b); can't reference a CSS
+  /* Arrow fill = dark theme's --text-muted (#9da2ab); can't reference a CSS
      variable from inside the data-URI, so it's duplicated here. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b919b' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239da2ab' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
 }
 
 select:focus {

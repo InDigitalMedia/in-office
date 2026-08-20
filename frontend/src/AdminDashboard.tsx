@@ -406,8 +406,13 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
   const sortedWhosWhereTable = useMemo(() => {
     const { key, dir } = whoSort
     const sign = dir === 'asc' ? 1 : -1
+    // Location columns display each person's share of their own total (a
+    // percentage), not the raw day count -- so they have to sort on that same
+    // ratio, or the visible percentages won't come out in order.
+    const ratio = (row: (typeof whosWhereTable)[number], loc: WorkLocation) =>
+      row.total > 0 ? row.totals[loc] / row.total : 0
     return whosWhereTable.slice().sort((a, b) => {
-      const cmp = key === 'user' ? a.user.localeCompare(b.user) : key === 'total' ? a.total - b.total : a.totals[key] - b.totals[key]
+      const cmp = key === 'user' ? a.user.localeCompare(b.user) : key === 'total' ? a.total - b.total : ratio(a, key) - ratio(b, key)
       return cmp * sign
     })
   }, [whosWhereTable, whoSort])

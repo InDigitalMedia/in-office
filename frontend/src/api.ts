@@ -1,4 +1,5 @@
 import {
+  AdminEntry,
   BulkUpsertRequest,
   BulkUpsertResponse,
   ExistingEntry,
@@ -83,6 +84,17 @@ export async function getUsersForWeek(
 
 export async function getAllUsers(): Promise<{ users: string[] }> {
   return apiCall<{ users: string[] }>('/summary/all-users')
+}
+
+export async function getEntries(
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AdminEntry[]> {
+  const params = new URLSearchParams()
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  const query = params.toString()
+  return apiCall<AdminEntry[]>(`/entries${query ? `?${query}` : ''}`)
 }
 
 export async function verifyAdminTabPassword(password: string): Promise<boolean> {

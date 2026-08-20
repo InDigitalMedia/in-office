@@ -7,7 +7,7 @@ A web app for tracking where team members are working each day — Neal Street, 
 - 📅 **Week-view dashboard** — everyone's location grouped by day and location, with headcounts
 - ✂️ **Split days** — a day can be split into morning/afternoon, each with its own location
 - 💬 **Slack integration** — `/enter-week` slash command, daily reminder DMs, and a "who's in the office" channel digest, all without leaving Slack (see below)
-- 🔒 **Password-gated Admin tab** in the web app
+- 🔒 **Admin tab** — password-gated Team Location Dashboard: filter by date range/team member/location, KPI cards (in-office/remote/away %), charts (by location, by day, weekly trend), a per-person breakdown table with CSV export, and a per-user attendance heatmap
 - 👥 **Client and team-member rosters** (`frontend/public/clients.json`, `frontend/public/team-members.json`) — kept alphabetically sorted, see `CLAUDE.md`
 - 📱 Mobile responsive, light/dark theme
 

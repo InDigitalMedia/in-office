@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers, deleteUserWeek, verifyAdminTabPassword } from './api'
+import AdminDashboard from './AdminDashboard'
 // Load team and client lists from public at runtime (no imports from root)
 
 type ViewMode = 'fill' | 'dashboard' | 'edit' | 'admin'
@@ -46,7 +47,7 @@ function formatWeekRangeLabel(weekStart: Date): string {
   return `${startStr} → ${endStr}`
 }
 
-function formatFriendlyDate(dateStr: string): string {
+export function formatFriendlyDate(dateStr: string): string {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const [, month, day] = dateStr.split('-').map(Number)
   return `${day} ${months[month - 1]}`
@@ -57,7 +58,7 @@ function formatWeekHeading(weekStart: Date): string {
 }
 
 // Location normalization helpers to be compatible with both old and new APIs
-function normalizeLocationFromApi(location: string): WorkLocation {
+export function normalizeLocationFromApi(location: string): WorkLocation {
   switch (location) {
     case 'Office':
       return 'Neal Street'
@@ -132,7 +133,7 @@ function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
   )
 }
 
-function getLocationAccentColor(location: string): string {
+export function getLocationAccentColor(location: string): string {
   // Returns a CSS variable so the accent tracks the active theme (see styles.css).
   switch (location) {
     case 'Neal Street': return 'var(--accent-office)'
@@ -146,7 +147,7 @@ function getLocationAccentColor(location: string): string {
 }
 
 // Location order for consistent display
-const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
+export const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
 
 function getLocationBadgeClass(location: string): string {
   switch (location.toLowerCase()) {
@@ -2102,10 +2103,7 @@ function App() {
       {viewMode === 'admin' && (
         <div className="dashboard">
           {adminUnlocked ? (
-            <>
-              <h2>Admin</h2>
-              <p>Coming soon — this section is under construction.</p>
-            </>
+            <AdminDashboard teamMembers={allUsers} />
           ) : (
             <form onSubmit={handleAdminPasswordSubmit} style={{ maxWidth: 320 }}>
               <h2>Admin</h2>

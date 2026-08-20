@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added - Admin Team Location Dashboard
+
+The Admin tab (previously a "Coming soon" stub) now shows a full dashboard for seeing where the team works, on average:
+
+- Filters: date range (defaults to all-time), team member, location category
+- KPI cards: in-office / remote / away percentages
+- Charts: days by location, location mix by day, weekly trend (via the new `recharts` dependency)
+- A per-person "who's where on average" breakdown table, with CSV export
+- A per-user attendance heatmap (last 12 weeks)
+
+Powered by the existing (previously unused) `GET /entries?date_from=&date_to=` endpoint — no backend changes were needed.
+
+**Files Changed:**
+- `frontend/src/AdminDashboard.tsx` - new dashboard component
+- `frontend/src/App.tsx` - wires in `AdminDashboard`; a few location/date helpers exported for reuse
+- `frontend/src/api.ts`, `frontend/src/types.ts` - added `getEntries()` / `AdminEntry`
+- `frontend/src/styles.css` - dashboard styling
+- `frontend/package.json` - added `recharts`
+
 ### Fixed - Data Loss Prevention
 
 **Problem:** User entries were disappearing due to:

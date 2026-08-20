@@ -57,3 +57,15 @@ export interface ExistingEntry {
   client?: string | null
   notes?: string | null
 }
+
+export interface AdminEntry {
+  id: number
+  user_name: string
+  date: string
+  location: string
+  time_period?: string | null
+  client?: string | null
+  notes?: string | null
+  created_at: string
+  updated_at?: string | null
+}

@@ -2003,6 +2003,22 @@ select option {
   width: 140px;
 }
 
+/* Clickable column headers that drive the table's sort order. */
+.admin-sort-th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-sort-th:hover {
+  color: var(--text-heading);
+}
+
+.admin-sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 9px;
+}
+
 /* Numeric columns right-align so a column of percentages scans cleanly. */
 .admin-who-table th:not(:first-child),
 .admin-who-table td:not(:first-child) {

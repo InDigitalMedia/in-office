@@ -125,6 +125,11 @@ function pct(part: number, total: number): string {
   return `${Math.round((part / total) * 100)}%`
 }
 
+function SortArrow({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
+  if (!active) return null
+  return <span className="admin-sort-arrow">{dir === 'asc' ? '▲' : '▼'}</span>
+}
+
 function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`
@@ -295,6 +300,21 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     return { total, nealStreet, clientOffice, remote, away }
   }, [tableEntries])
 
+  // Highest-to-lowest ordering by total tracked days in the current filter --
+  // computed once here and reused for every chart below ("Days by location",
+  // the "Location mix by day" stack, and the weekly trend lines) so location
+  // order and colour stay identical across every bar/day instead of being
+  // resorted per data point.
+  const locationOrderByCount = useMemo(() => {
+    const totals = new Map<WorkLocation, number>()
+    ;(locationOrder as WorkLocation[]).forEach((loc) => totals.set(loc, 0))
+    for (const e of filteredEntries) {
+      const loc = normalizeLocationFromApi(e.location)
+      totals.set(loc, (totals.get(loc) || 0) + weightOf(e))
+    }
+    return (locationOrder as WorkLocation[]).slice().sort((a, b) => (totals.get(b) || 0) - (totals.get(a) || 0))
+  }, [filteredEntries])
+
   const locationBreakdown = useMemo(() => {
     const totals = new Map<WorkLocation, number>()
     locationOrder.forEach((loc) => totals.set(loc as WorkLocation, 0))
@@ -303,14 +323,14 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
       totals.set(loc, (totals.get(loc) || 0) + weightOf(e))
     }
     const grandTotal = Array.from(totals.values()).reduce((a, b) => a + b, 0)
-    return locationOrder
-      .filter((loc) => selectedLocations.has(loc as WorkLocation))
+    return locationOrderByCount
+      .filter((loc) => selectedLocations.has(loc))
       .map((loc) => ({
         location: loc,
-        days: Math.round((totals.get(loc as WorkLocation) || 0) * 10) / 10,
-        pct: pct(totals.get(loc as WorkLocation) || 0, grandTotal),
+        days: Math.round((totals.get(loc) || 0) * 10) / 10,
+        pct: pct(totals.get(loc) || 0, grandTotal),
       }))
-  }, [filteredEntries, selectedLocations])
+  }, [filteredEntries, selectedLocations, locationOrderByCount])
 
   // Stacked bar of location mix per calendar day. Capped to the most recent
   // 60 days of the filtered range so an "all time" view doesn't render
@@ -370,8 +390,27 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
         return { user, totals, total }
       })
       .filter((row) => row.total > 0)
-      .sort((a, b) => a.user.localeCompare(b.user))
   }, [tableEntries])
+
+  const [whoSort, setWhoSort] = useState<{ key: WorkLocation | 'user' | 'total'; dir: 'asc' | 'desc' }>({
+    key: 'total',
+    dir: 'desc',
+  })
+
+  function toggleWhoSort(key: WorkLocation | 'user' | 'total') {
+    setWhoSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'user' ? 'asc' : 'desc' }
+    )
+  }
+
+  const sortedWhosWhereTable = useMemo(() => {
+    const { key, dir } = whoSort
+    const sign = dir === 'asc' ? 1 : -1
+    return whosWhereTable.slice().sort((a, b) => {
+      const cmp = key === 'user' ? a.user.localeCompare(b.user) : key === 'total' ? a.total - b.total : a.totals[key] - b.totals[key]
+      return cmp * sign
+    })
+  }, [whosWhereTable, whoSort])
 
   // Client Office visits, regardless of the location checkbox filter -- same
   // rationale as tableEntries above: drilling into one client shouldn't
@@ -396,12 +435,30 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     clientOfficeEntries
       .filter((e) => e.client === selectedClient)
       .forEach((e) => perUser.set(e.user_name, (perUser.get(e.user_name) || 0) + weightOf(e)))
-    const rows = Array.from(perUser.entries())
-      .map(([user, days]) => ({ user, days }))
-      .sort((a, b) => b.days - a.days || a.user.localeCompare(b.user))
+    const rows = Array.from(perUser.entries()).map(([user, days]) => ({ user, days }))
     const total = rows.reduce((sum, r) => sum + r.days, 0)
     return { rows, total }
   }, [clientOfficeEntries, selectedClient])
+
+  const [clientSort, setClientSort] = useState<{ key: 'user' | 'days'; dir: 'asc' | 'desc' }>({
+    key: 'days',
+    dir: 'desc',
+  })
+
+  function toggleClientSort(key: 'user' | 'days') {
+    setClientSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'user' ? 'asc' : 'desc' }
+    )
+  }
+
+  const sortedClientRows = useMemo(() => {
+    if (!clientBreakdown) return []
+    const { key, dir } = clientSort
+    const sign = dir === 'asc' ? 1 : -1
+    return clientBreakdown.rows
+      .slice()
+      .sort((a, b) => (key === 'user' ? a.user.localeCompare(b.user) : a.days - b.days) * sign)
+  }, [clientBreakdown, clientSort])
 
   const heatmapWeeks = useMemo(() => {
     if (!heatmapUser) return []
@@ -618,9 +675,9 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                     return first ? (first.payload as { fullLabel: string }).fullLabel : value
                   }}
                 />
-                <Legend wrapperStyle={LEGEND_WRAPPER_STYLE} />
-                {locationOrder
-                  .filter((loc) => selectedLocations.has(loc as WorkLocation))
+                <Legend wrapperStyle={LEGEND_WRAPPER_STYLE} itemSorter={() => 0} />
+                {locationOrderByCount
+                  .filter((loc) => selectedLocations.has(loc))
                   .map((loc) => (
                     <Bar key={loc} dataKey={loc} stackId="day" name={loc} fill={getLocationAccentColor(loc)} />
                   ))}
@@ -644,9 +701,9 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                   labelStyle={TOOLTIP_LABEL_STYLE}
                   itemStyle={TOOLTIP_ITEM_STYLE}
                 />
-                <Legend wrapperStyle={LEGEND_WRAPPER_STYLE} />
-                {locationOrder
-                  .filter((loc) => selectedLocations.has(loc as WorkLocation))
+                <Legend wrapperStyle={LEGEND_WRAPPER_STYLE} itemSorter={() => 0} />
+                {locationOrderByCount
+                  .filter((loc) => selectedLocations.has(loc))
                   .map((loc) => (
                     <Line key={loc} type="monotone" dataKey={loc} name={loc} stroke={getLocationAccentColor(loc)} strokeWidth={2} dot={false} />
                   ))}
@@ -668,15 +725,24 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
               <table className="admin-who-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
+                    <th className="admin-sort-th" onClick={() => toggleWhoSort('user')}>
+                      Name
+                      <SortArrow active={whoSort.key === 'user'} dir={whoSort.dir} />
+                    </th>
                     {locationOrder.map((loc) => (
-                      <th key={loc}>{loc}</th>
+                      <th key={loc} className="admin-sort-th" onClick={() => toggleWhoSort(loc as WorkLocation)}>
+                        {loc}
+                        <SortArrow active={whoSort.key === loc} dir={whoSort.dir} />
+                      </th>
                     ))}
-                    <th>Total days</th>
+                    <th className="admin-sort-th" onClick={() => toggleWhoSort('total')}>
+                      Total days
+                      <SortArrow active={whoSort.key === 'total'} dir={whoSort.dir} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {whosWhereTable.map((row) => (
+                  {sortedWhosWhereTable.map((row) => (
                     <tr key={row.user}>
                       <td>{row.user}</td>
                       {locationOrder.map((loc) => {
@@ -691,7 +757,7 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                       <td>{row.total.toFixed(1)}</td>
                     </tr>
                   ))}
-                  {whosWhereTable.length === 0 && (
+                  {sortedWhosWhereTable.length === 0 && (
                     <tr>
                       <td className="admin-empty-row" colSpan={locationOrder.length + 2}>
                         No entries in this range.
@@ -795,18 +861,24 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                       <table className="admin-who-table admin-client-table">
                         <thead>
                           <tr>
-                            <th>Name</th>
-                            <th>Days</th>
+                            <th className="admin-sort-th" onClick={() => toggleClientSort('user')}>
+                              Name
+                              <SortArrow active={clientSort.key === 'user'} dir={clientSort.dir} />
+                            </th>
+                            <th className="admin-sort-th" onClick={() => toggleClientSort('days')}>
+                              Days
+                              <SortArrow active={clientSort.key === 'days'} dir={clientSort.dir} />
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {clientBreakdown.rows.map((r) => (
+                          {sortedClientRows.map((r) => (
                             <tr key={r.user}>
                               <td>{r.user}</td>
                               <td>{r.days.toFixed(1)}</td>
                             </tr>
                           ))}
-                          {clientBreakdown.rows.length === 0 && (
+                          {sortedClientRows.length === 0 && (
                             <tr>
                               <td className="admin-empty-row" colSpan={2}>
                                 No visits recorded.

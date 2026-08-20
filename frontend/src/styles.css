@@ -1669,6 +1669,20 @@ select option {
   gap: 6px;
 }
 
+/* Quick date-range picks -- own full-width row, same "label + wrapping pills"
+   shape as .admin-location-checks below, so the two rows read as a pair. */
+.admin-quick-filters {
+  flex: 1 1 100%;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-quick-filters > .admin-filter-label {
+  flex: 0 0 100%;
+}
+
 .admin-filter-bar input[type='date'],
 .admin-multiselect input[type='text'] {
   padding: 7px 10px;
@@ -1945,10 +1959,14 @@ select option {
   display: none;
 }
 
+/* table-layout: fixed divides the columns after the name column equally,
+   regardless of header text length -- so "Working From Abroad" no longer
+   forces its column (and only its column) wider than the rest. */
 .admin-who-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 
 .admin-who-table th,
@@ -1957,6 +1975,9 @@ select option {
   text-align: left;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
+}
+
+.admin-who-table td {
   white-space: nowrap;
 }
 
@@ -1969,6 +1990,17 @@ select option {
   /* 1px rather than the 2px of .week-table th: this table carries eight
      columns including "Working From Abroad", which 2px pushes far too wide. */
   letter-spacing: 1px;
+  /* Headers wrap instead of forcing their column wide -- with table-layout:
+     fixed above, that's what actually lets the columns land evenly. */
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: bottom;
+  line-height: 1.3;
+}
+
+.admin-who-table th:first-child,
+.admin-who-table td:first-child {
+  width: 140px;
 }
 
 /* Numeric columns right-align so a column of percentages scans cleanly. */
@@ -2006,6 +2038,20 @@ select option {
 .admin-who-table td.admin-empty-row {
   color: var(--text-muted);
   text-align: left;
+}
+
+/* Client Office breakdown reuses .admin-who-table but only has two short
+   headers ("Name"/"Days"), so it opts back out of the fixed/wrapped layout
+   above and sizes itself to content instead of stretching full width. */
+.admin-client-table {
+  table-layout: auto;
+  width: auto;
+  max-width: 320px;
+}
+
+.admin-client-table th,
+.admin-client-table td {
+  white-space: nowrap;
 }
 
 /* --- Per-user attendance heatmap ---------------------------------------- */

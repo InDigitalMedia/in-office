@@ -96,6 +96,31 @@ function mondayOf(dateStr: string): string {
   return dt.toISOString().split('T')[0]
 }
 
+function addDaysISO(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return dt.toISOString().split('T')[0]
+}
+
+function todayISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function startOfMonthISO(dateStr: string): string {
+  return `${dateStr.slice(0, 7)}-01`
+}
+
+// "Thursday, 6 Aug" — used in the by-day chart's tooltip so a hover shows the
+// weekday, not just the date (the x-axis tick stays short).
+function weekdayLabel(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const weekday = dt.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' })
+  return `${weekday}, ${formatFriendlyDate(dateStr)}`
+}
+
 function pct(part: number, total: number): string {
   if (total <= 0) return '0%'
   return `${Math.round((part / total) * 100)}%`
@@ -188,12 +213,34 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     new Set(locationOrder as WorkLocation[])
   )
   const [heatmapUser, setHeatmapUser] = useState('')
+  const [selectedClient, setSelectedClient] = useState('')
+
+  // "All time" still means "don't go into the future" -- entries can exist
+  // for weeks people have already pre-filled, so an unbounded upper date
+  // pulled those in too. Capped at this week's Friday rather than today so
+  // the current week's already-filled days stay visible.
+  const today = todayISO()
+  const thisMonday = mondayOf(today)
+  const thisFriday = addDaysISO(thisMonday, 4)
+  const lastMonday = addDaysISO(thisMonday, -7)
+  const lastFriday = addDaysISO(lastMonday, 4)
+  const thisMonthStart = startOfMonthISO(today)
+  const lastMonthEnd = addDaysISO(thisMonthStart, -1)
+  const lastMonthStart = startOfMonthISO(lastMonthEnd)
+
+  const QUICK_FILTERS = [
+    { label: 'This week', from: thisMonday, to: thisFriday },
+    { label: 'Last week', from: lastMonday, to: lastFriday },
+    { label: 'This month', from: thisMonthStart, to: today },
+    { label: 'Last month', from: lastMonthStart, to: lastMonthEnd },
+    { label: 'All time', from: '', to: '' },
+  ]
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError('')
-    getEntries(dateFrom || undefined, dateTo || undefined)
+    getEntries(dateFrom || undefined, dateTo || thisFriday)
       .then((entries) => {
         if (!cancelled) setRawEntries(entries)
       })
@@ -278,7 +325,12 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     const dates = Array.from(byDate.keys()).sort()
     const truncated = dates.length > 60
     const shown = truncated ? dates.slice(dates.length - 60) : dates
-    const rows = shown.map((date) => ({ date, label: formatFriendlyDate(date), ...byDate.get(date) }))
+    const rows = shown.map((date) => ({
+      date,
+      label: formatFriendlyDate(date),
+      fullLabel: weekdayLabel(date),
+      ...byDate.get(date),
+    }))
     return { rows, truncated, totalDays: dates.length }
   }, [filteredEntries])
 
@@ -319,6 +371,36 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
       .filter((row) => row.total > 0)
       .sort((a, b) => a.user.localeCompare(b.user))
   }, [tableEntries])
+
+  // Client Office visits, regardless of the location checkbox filter -- same
+  // rationale as tableEntries above: drilling into one client shouldn't
+  // depend on "Client Office" still being checked in the chart filter.
+  const clientOfficeEntries = useMemo(
+    () => tableEntries.filter((e) => normalizeLocationFromApi(e.location) === 'Client Office' && e.client),
+    [tableEntries]
+  )
+
+  const clientsInData = useMemo(() => {
+    const names = new Set(clientOfficeEntries.map((e) => e.client as string))
+    return Array.from(names).sort((a, b) => a.localeCompare(b))
+  }, [clientOfficeEntries])
+
+  useEffect(() => {
+    if (selectedClient && !clientsInData.includes(selectedClient)) setSelectedClient('')
+  }, [clientsInData, selectedClient])
+
+  const clientBreakdown = useMemo(() => {
+    if (!selectedClient) return null
+    const perUser = new Map<string, number>()
+    clientOfficeEntries
+      .filter((e) => e.client === selectedClient)
+      .forEach((e) => perUser.set(e.user_name, (perUser.get(e.user_name) || 0) + weightOf(e)))
+    const rows = Array.from(perUser.entries())
+      .map(([user, days]) => ({ user, days }))
+      .sort((a, b) => b.days - a.days || a.user.localeCompare(b.user))
+    const total = rows.reduce((sum, r) => sum + r.days, 0)
+    return { rows, total }
+  }, [clientOfficeEntries, selectedClient])
 
   const heatmapWeeks = useMemo(() => {
     if (!heatmapUser) return []
@@ -384,26 +466,45 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
             <label className="admin-filter-label" htmlFor="admin-date-from">
               From
             </label>
-            <input id="admin-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input
+              id="admin-date-from"
+              type="date"
+              value={dateFrom}
+              max={thisFriday}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
           </div>
           <div className="admin-date-field">
             <label className="admin-filter-label" htmlFor="admin-date-to">
               To
             </label>
-            <input id="admin-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input
+              id="admin-date-to"
+              type="date"
+              value={dateTo}
+              max={thisFriday}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
           </div>
-          {(dateFrom || dateTo) && (
-            <button
-              type="button"
-              className="preset-btn"
-              onClick={() => {
-                setDateFrom('')
-                setDateTo('')
-              }}
-            >
-              All time
-            </button>
-          )}
+        </div>
+        <div className="admin-filter-group admin-quick-filters">
+          <span className="admin-filter-label">Quick range</span>
+          {QUICK_FILTERS.map((f) => {
+            const active = dateFrom === f.from && dateTo === f.to
+            return (
+              <button
+                key={f.label}
+                type="button"
+                className={`preset-btn${active ? ' preset-btn-highlight' : ''}`}
+                onClick={() => {
+                  setDateFrom(f.from)
+                  setDateTo(f.to)
+                }}
+              >
+                {f.label}
+              </button>
+            )
+          })}
         </div>
         <div className="admin-filter-group">
           <label className="admin-filter-label" htmlFor="admin-user-search">
@@ -507,6 +608,10 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                   contentStyle={TOOLTIP_CONTENT_STYLE}
                   labelStyle={TOOLTIP_LABEL_STYLE}
                   itemStyle={TOOLTIP_ITEM_STYLE}
+                  labelFormatter={(value, payload) => {
+                    const first = payload && payload[0]
+                    return first ? (first.payload as { fullLabel: string }).fullLabel : value
+                  }}
                 />
                 <Legend wrapperStyle={LEGEND_WRAPPER_STYLE} />
                 {locationOrder
@@ -651,6 +756,62 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
                       </div>
                     ))}
                   </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="admin-chart-card">
+            <h3>Client Office breakdown</h3>
+            {clientsInData.length === 0 ? (
+              <p className="admin-chart-note">No Client Office entries in the selected date range.</p>
+            ) : (
+              <>
+                <select
+                  className="admin-user-select"
+                  aria-label="Client for office-visit breakdown"
+                  value={selectedClient}
+                  onChange={(e) => setSelectedClient(e.target.value)}
+                >
+                  <option value="">Choose a client…</option>
+                  {clientsInData.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {selectedClient && clientBreakdown && (
+                  <>
+                    <p className="admin-chart-note">
+                      {clientBreakdown.total.toFixed(1)} team-days at {selectedClient} in the selected range,
+                      regardless of the location filter above.
+                    </p>
+                    <div className="admin-table-scroll">
+                      <table className="admin-who-table admin-client-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Days</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {clientBreakdown.rows.map((r) => (
+                            <tr key={r.user}>
+                              <td>{r.user}</td>
+                              <td>{r.days.toFixed(1)}</td>
+                            </tr>
+                          ))}
+                          {clientBreakdown.rows.length === 0 && (
+                            <tr>
+                              <td className="admin-empty-row" colSpan={2}>
+                                No visits recorded.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </>
             )}

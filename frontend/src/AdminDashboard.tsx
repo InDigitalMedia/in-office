@@ -16,7 +16,6 @@ import { WorkLocation, AdminEntry } from './types'
 import { getEntries } from './api'
 import { locationOrder, normalizeLocationFromApi, getLocationAccentColor, formatFriendlyDate } from './App'
 
-const IN_OFFICE: WorkLocation[] = ['Neal Street', 'Client Office']
 const REMOTE: WorkLocation[] = ['WFH', 'Working From Abroad']
 const AWAY: WorkLocation[] = ['Holiday', 'Other']
 
@@ -280,18 +279,20 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
 
   const kpis = useMemo(() => {
     let total = 0
-    let inOffice = 0
+    let nealStreet = 0
+    let clientOffice = 0
     let remote = 0
     let away = 0
     for (const e of tableEntries) {
       const loc = normalizeLocationFromApi(e.location)
       const w = weightOf(e)
       total += w
-      if (IN_OFFICE.includes(loc)) inOffice += w
+      if (loc === 'Neal Street') nealStreet += w
+      else if (loc === 'Client Office') clientOffice += w
       else if (REMOTE.includes(loc)) remote += w
       else if (AWAY.includes(loc)) away += w
     }
-    return { total, inOffice, remote, away }
+    return { total, nealStreet, clientOffice, remote, away }
   }, [tableEntries])
 
   const locationBreakdown = useMemo(() => {
@@ -545,8 +546,12 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
               <div className="admin-kpi-label">Total tracked days</div>
             </div>
             <div className="admin-kpi-card" style={{ borderLeftColor: 'var(--accent-office)' }}>
-              <div className="admin-kpi-value">{pct(kpis.inOffice, kpis.total)}</div>
-              <div className="admin-kpi-label">In office (Neal Street + Client Office)</div>
+              <div className="admin-kpi-value">{pct(kpis.nealStreet, kpis.total)}</div>
+              <div className="admin-kpi-label">Neal Street</div>
+            </div>
+            <div className="admin-kpi-card" style={{ borderLeftColor: 'var(--accent-client)' }}>
+              <div className="admin-kpi-value">{pct(kpis.clientOffice, kpis.total)}</div>
+              <div className="admin-kpi-label">Client Office</div>
             </div>
             <div className="admin-kpi-card" style={{ borderLeftColor: 'var(--accent-wfh)' }}>
               <div className="admin-kpi-value">{pct(kpis.remote, kpis.total)}</div>

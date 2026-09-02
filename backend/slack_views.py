@@ -45,13 +45,19 @@ SPLIT_DAY_CHECKBOX_VALUE = "split"
 # not a real client name so it can never collide with an actual clients.json entry.
 CUSTOM_CLIENT_VALUE = "__custom__"
 
+EXTRA_TOGGLE_ACTION_ID = "extra_toggle"
+EXTRA_TOGGLE_CHECKBOX_VALUE = "extra"
+EXTRA_TYPE_ACTION_ID = "extra_type"
+EXTRA_TYPE_OPTIONS = ["Bike", "Pet", "Other"]
+EXTRA_EMOJI = {"Bike": "🚲", "Pet": "🐾", "Other": "📌"}
+
 ACTION_SAME_AS_LAST_WEEK = "quickfill_same_as_last_week"
 ACTION_FILL_WEEK = "quickfill_fill_week"
 
 CALLBACK_ID_WEEK_MODAL = "log_week_modal"
 
 # Any block_id whose value changing should trigger a live modal re-render.
-DISPATCH_ACTION_IDS = (LOCATION_ACTION_ID, CLIENT_SELECT_ACTION_ID, SPLIT_DAY_ACTION_ID)
+DISPATCH_ACTION_IDS = (LOCATION_ACTION_ID, CLIENT_SELECT_ACTION_ID, SPLIT_DAY_ACTION_ID, EXTRA_TOGGLE_ACTION_ID, EXTRA_TYPE_ACTION_ID)
 
 
 def _day_date(week_start: str, offset: int) -> str:
@@ -210,27 +216,112 @@ def _build_location_field(label: str, block_id_suffix: str, sub_label_fn, state:
     return blocks
 
 
+_EXTRA_TOGGLE_CHECKBOX_OPTION = {
+    "text": {"type": "plain_text", "text": "Bringing something extra? (bike, pet, etc.)"},
+    "value": EXTRA_TOGGLE_CHECKBOX_VALUE,
+}
+
+
+def _build_extra_field(sub_label_fn, block_id_suffix: str, state: dict, bike_disabled: bool) -> list:
+    """One "extra info" checkbox + its conditional type dropdown (Bike/Pet/Other)
+    and, for Other, a free-text description. bike_disabled drops "Bike" from the
+    dropdown's options once Neal Street's 2-bike cap is already reached by someone
+    else that day -- Block Kit has no per-option disabled state, so omitting the
+    option entirely is the closest equivalent to greying it out."""
+    has_extra = bool(state.get("has_extra"))
+
+    toggle_block = {
+        "type": "input",
+        "block_id": f"extra_{block_id_suffix}",
+        "optional": True,
+        "dispatch_action": True,
+        "label": {"type": "plain_text", "text": sub_label_fn("Extra info?")},
+        "element": {
+            "type": "checkboxes",
+            "action_id": EXTRA_TOGGLE_ACTION_ID,
+            "options": [_EXTRA_TOGGLE_CHECKBOX_OPTION],
+        },
+    }
+    if has_extra:
+        toggle_block["element"]["initial_options"] = [_EXTRA_TOGGLE_CHECKBOX_OPTION]
+    blocks = [toggle_block]
+
+    if not has_extra:
+        return blocks
+
+    extra_type = state.get("extra_type")
+    if extra_type == "Bike" and bike_disabled:
+        # Was previously selected but is now full -- drop back to unset rather
+        # than keeping a now-invalid initial_option Slack would reject outright.
+        extra_type = None
+    available_types = [t for t in EXTRA_TYPE_OPTIONS if not (t == "Bike" and bike_disabled)]
+
+    type_block = {
+        "type": "input",
+        "block_id": f"extra_type_{block_id_suffix}",
+        "dispatch_action": True,
+        "label": {"type": "plain_text", "text": sub_label_fn("What are you bringing?")},
+        "element": {
+            "type": "static_select",
+            "action_id": EXTRA_TYPE_ACTION_ID,
+            "options": [
+                {"text": {"type": "plain_text", "text": t}, "value": t}
+                for t in available_types
+            ],
+        },
+    }
+    if bike_disabled:
+        type_block["label"]["text"] = sub_label_fn("What are you bringing? (bike full -- 2 already booked)")
+    if extra_type:
+        type_block["element"]["initial_option"] = {
+            "text": {"type": "plain_text", "text": extra_type},
+            "value": extra_type,
+        }
+    blocks.append(type_block)
+
+    if extra_type == "Other":
+        note_block = {
+            "type": "input",
+            "block_id": f"extra_note_{block_id_suffix}",
+            "label": {"type": "plain_text", "text": sub_label_fn("Describe what you're bringing")},
+            "element": {"type": "plain_text_input", "action_id": "text"},
+        }
+        if state.get("extra_note"):
+            note_block["element"]["initial_value"] = state["extra_note"]
+        blocks.append(note_block)
+
+    return blocks
+
+
 _SPLIT_DAY_CHECKBOX_OPTION = {
     "text": {"type": "plain_text", "text": "Split day"},
     "value": SPLIT_DAY_CHECKBOX_VALUE,
 }
 
 
-def _build_day_blocks(week_start: str, day_state: dict) -> list:
-    """day_state: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}},
-    where each of full/morning/afternoon is {"location": str|None, "client_choice":
-    str|None, "text": str|None}. Every day gets a "Split day" checkbox;
+def _build_day_blocks(week_start: str, day_state: dict, bike_full_dates: set | None = None) -> list:
+    """day_state: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...},
+    "full_extra": {...}, "morning_extra": {...}, "afternoon_extra": {...}}}, where each of
+    full/morning/afternoon is {"location": str|None, "client_choice": str|None, "text": str|None}
+    and each of full_extra/morning_extra/afternoon_extra is {"has_extra": bool, "extra_type":
+    str|None, "extra_note": str|None}. Every day gets a "Split day" checkbox;
     unchecked (the default) renders one location field ("full"),
     checked renders two independent ones ("morning"/"afternoon"), each with its
-    own conditional Client Office/Other sub-field.
+    own conditional Client Office/Other sub-field and its own "extra info" checkbox.
+
+    bike_full_dates: dates (within this week) where Neal Street's 2-bike cap is
+    already reached by someone else -- drops "Bike" from that date's extra-type
+    dropdown(s) whose location is Neal Street.
 
     This one function is the single source of truth for which blocks exist given
     the current state, used both when the modal first opens and every time it's
     live-updated, so rendering can't drift from what parse_week_submission expects."""
+    bike_full_dates = bike_full_dates or set()
     blocks = []
     for offset in range(5):
         state = day_state.get(offset, {})
         split = bool(state.get("split"))
+        date_str = _day_date(week_start, offset)
 
         if offset > 0:
             # Block Kit gives every input block the same fixed vertical gap, so
@@ -268,24 +359,45 @@ def _build_day_blocks(week_start: str, day_state: dict) -> list:
         blocks.append(split_block)
 
         if split:
+            morning_state = state.get("morning", {})
+            afternoon_state = state.get("afternoon", {})
             blocks.extend(_build_location_field(
                 _sub_label(week_start, offset, "Morning"),
                 f"{offset}_morning",
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
-                state.get("morning", {}),
+                morning_state,
+            ))
+            blocks.extend(_build_extra_field(
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
+                f"{offset}_morning",
+                state.get("morning_extra", {}),
+                bike_disabled=(morning_state.get("location") == "Neal Street" and date_str in bike_full_dates),
             ))
             blocks.extend(_build_location_field(
                 _sub_label(week_start, offset, "Afternoon"),
                 f"{offset}_afternoon",
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
-                state.get("afternoon", {}),
+                afternoon_state,
+            ))
+            blocks.extend(_build_extra_field(
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
+                f"{offset}_afternoon",
+                state.get("afternoon_extra", {}),
+                bike_disabled=(afternoon_state.get("location") == "Neal Street" and date_str in bike_full_dates),
             ))
         else:
+            full_state = state.get("full", {})
             blocks.extend(_build_location_field(
                 "Location",
                 str(offset),
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
-                state.get("full", {}),
+                full_state,
+            ))
+            blocks.extend(_build_extra_field(
+                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
+                str(offset),
+                state.get("full_extra", {}),
+                bike_disabled=(full_state.get("location") == "Neal Street" and date_str in bike_full_dates),
             ))
 
     return blocks
@@ -317,6 +429,24 @@ def _extract_location_field(values: dict, block_id_suffix: str) -> dict:
     return {"location": location, "client_choice": client_choice, "text": text}
 
 
+def _extract_extra_field(values: dict, block_id_suffix: str) -> dict:
+    """{"has_extra": bool, "extra_type": str|None, "extra_note": str|None} for
+    one day/period's "extra info" checkbox + dropdown + (Other) free text."""
+    toggle_field = values.get(f"extra_{block_id_suffix}", {}).get(EXTRA_TOGGLE_ACTION_ID, {})
+    has_extra = bool(toggle_field.get("selected_options"))
+
+    extra_type = None
+    extra_note = None
+    if has_extra:
+        type_field = values.get(f"extra_type_{block_id_suffix}", {}).get(EXTRA_TYPE_ACTION_ID, {})
+        selected = type_field.get("selected_option")
+        extra_type = selected["value"] if selected else None
+        if extra_type == "Other":
+            extra_note = values.get(f"extra_note_{block_id_suffix}", {}).get("text", {}).get("value")
+
+    return {"has_extra": has_extra, "extra_type": extra_type, "extra_note": extra_note}
+
+
 def extract_day_state(values: dict) -> dict:
     """Reads the modal's current full state (all 5 days) out of a view's
     state.values -- used both to rebuild blocks on a live field change and to
@@ -331,20 +461,31 @@ def extract_day_state(values: dict) -> dict:
             "full": _extract_location_field(values, str(offset)),
             "morning": _extract_location_field(values, f"{offset}_morning"),
             "afternoon": _extract_location_field(values, f"{offset}_afternoon"),
+            "full_extra": _extract_extra_field(values, str(offset)),
+            "morning_extra": _extract_extra_field(values, f"{offset}_morning"),
+            "afternoon_extra": _extract_extra_field(values, f"{offset}_afternoon"),
         }
     return day_state
 
 
 def build_week_modal(
-    week_start: str, user_name: str, prefill: dict | None = None, title: str | None = None, note: str | None = None
+    week_start: str,
+    user_name: str,
+    prefill: dict | None = None,
+    title: str | None = None,
+    note: str | None = None,
+    bike_full_dates: set | None = None,
 ) -> dict:
-    """prefill: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}}
-    for pre-filling from existing entries (see _build_day_blocks for the shape
-    of each field). title overrides the modal's title (Slack caps plain_text
-    titles at 24 chars).
+    """prefill: {offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...},
+    "full_extra": {...}, "morning_extra": {...}, "afternoon_extra": {...}}} for pre-filling from
+    existing entries (see _build_day_blocks for the shape of each field). title overrides the
+    modal's title (Slack caps plain_text titles at 24 chars).
     note, if given, renders as a leading text block above the day fields -- used
-    by "Same as last week" to flag anything that couldn't be carried over."""
-    blocks = _build_day_blocks(week_start, prefill or {})
+    by "Same as last week" to flag anything that couldn't be carried over.
+    bike_full_dates: see _build_day_blocks -- recomputed fresh by the caller for
+    every open/rebuild rather than cached, so it always reflects the DB's current
+    bike bookings."""
+    blocks = _build_day_blocks(week_start, prefill or {}, bike_full_dates)
     if note:
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": note}},
@@ -365,22 +506,34 @@ def build_week_modal(
 
 
 def rebuild_modal_view(
-    week_start: str, user_name: str, day_state: dict, title: str | None = None, note: str | None = None
+    week_start: str,
+    user_name: str,
+    day_state: dict,
+    title: str | None = None,
+    note: str | None = None,
+    bike_full_dates: set | None = None,
 ) -> dict:
     """Same view shape as build_week_modal, but built from the modal's own live
     state (day_state from extract_day_state) rather than DB prefill -- used when
     responding to a location-select change with views.update. title/note are
     carried over from the original private_metadata so a "Same as last week"
     confirmation modal keeps its title/note across live field-change updates."""
-    return build_week_modal(week_start, user_name, prefill=day_state, title=title, note=note)
+    return build_week_modal(week_start, user_name, prefill=day_state, title=title, note=note, bike_full_dates=bike_full_dates)
 
 
 def _parse_location_field(
-    field_state: dict, date_str: str, block_id_suffix: str, time_period: str | None, entries: list, errors: dict
+    field_state: dict,
+    extra_state: dict,
+    date_str: str,
+    block_id_suffix: str,
+    time_period: str | None,
+    entries: list,
+    errors: dict,
 ) -> None:
     """Turns one location field's state into an EntryCreate (appended to entries),
     or a field-anchored error (added to errors) if a required client/description
-    was left blank. Shared by the full-day and each half of a split day."""
+    (or, for extra_type "Other", a description of what's being brought) was left
+    blank. Shared by the full-day and each half of a split day."""
     location = field_state["location"]
     if not location:
         return  # left blank -- no entry for this field
@@ -397,6 +550,21 @@ def _parse_location_field(
         entry_kwargs["client"] = text_value
     else:
         entry_kwargs["notes"] = text_value
+
+    extra_type = extra_state.get("extra_type") if extra_state.get("has_extra") else None
+    if extra_type == "Other":
+        extra_note = (extra_state.get("extra_note") or "").strip() or None
+        if not extra_note:
+            # Checked here (before EntryCreate) rather than left to EntryCreate's
+            # own validator -- that raises the same ValidationError a missing
+            # client/description does, which would otherwise get misattributed to
+            # the wrong block below.
+            errors[f"extra_note_{block_id_suffix}"] = "Please describe what you're bringing"
+            return
+        entry_kwargs["extra"] = extra_type
+        entry_kwargs["extra_note"] = extra_note
+    elif extra_type:
+        entry_kwargs["extra"] = extra_type
 
     try:
         entries.append(EntryCreate(**entry_kwargs))
@@ -429,10 +597,10 @@ def parse_week_submission(view: dict) -> tuple[list[EntryCreate], dict]:
         date_str = _day_date(week_start, offset)
 
         if state["split"]:
-            _parse_location_field(state["morning"], date_str, f"{offset}_morning", "Morning", entries, errors)
-            _parse_location_field(state["afternoon"], date_str, f"{offset}_afternoon", "Afternoon", entries, errors)
+            _parse_location_field(state["morning"], state["morning_extra"], date_str, f"{offset}_morning", "Morning", entries, errors)
+            _parse_location_field(state["afternoon"], state["afternoon_extra"], date_str, f"{offset}_afternoon", "Afternoon", entries, errors)
         else:
-            _parse_location_field(state["full"], date_str, str(offset), None, entries, errors)
+            _parse_location_field(state["full"], state["full_extra"], date_str, str(offset), None, entries, errors)
 
     return entries, errors
 
@@ -487,6 +655,21 @@ def _mention(name: str, directory: dict) -> str:
     return f"<@{match['id']}>" if match else f"@{name}"
 
 
+def _extra_suffix(row) -> str:
+    """" 🚲"/" 🐾"/" 📌 <note>" appended after a name when that entry has extra
+    info set -- makes bike/pet/other visible right where people already look to
+    see who's in, which is the whole point of tracking it (and, for bikes,
+    what the 2-per-day cap is actually protecting against)."""
+    extra = getattr(row, "extra", None)
+    if not extra:
+        return ""
+    emoji = EXTRA_EMOJI.get(extra, "📌")
+    note = getattr(row, "extra_note", None)
+    if extra == "Other" and note:
+        return f" {emoji} {note}"
+    return f" {emoji}"
+
+
 def _format_entries(rows: list, directory: dict) -> str:
     """Names for one location group, annotated with a time period (e.g.
     "@Name (Morning)") when a row is a split (half) day entry -- matching the
@@ -504,7 +687,8 @@ def _format_entries(rows: list, directory: dict) -> str:
     def label(row) -> str:
         mention = _mention(row.user_name, directory)
         time_period = getattr(row, "time_period", None)
-        return f"{mention} ({time_period})" if time_period else mention
+        base = f"{mention} ({time_period})" if time_period else mention
+        return f"{base}{_extra_suffix(row)}"
 
     ordered = sorted(unique_rows.values(), key=lambda r: (r.user_name.strip().lower(), r.time_period or ""))
     return "  ".join(label(row) for row in ordered)

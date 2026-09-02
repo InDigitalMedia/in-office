@@ -14,6 +14,8 @@ class Entry(SQLModel, table=True):
     time_period: str = Field(default="", index=True)  # 'Morning', 'Afternoon', or '' for full day
     client: str | None = Field(default=None)
     notes: str | None = Field(default=None)
+    extra: str | None = Field(default=None)  # 'Bike', 'Pet', 'Other', or None
+    extra_note: str | None = Field(default=None)  # free-text description, only used when extra == 'Other'
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime | None = Field(default=None)
 

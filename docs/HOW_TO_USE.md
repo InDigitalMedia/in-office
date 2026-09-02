@@ -25,7 +25,7 @@ John: *Opens link*
 
 ### Or via Slack
 
-Anyone in the Slack workspace can also type `/enter-week` to fill in their week without leaving Slack — same six locations, no separate login. See `docs/SLACK_INTEGRATION.md` for setup/troubleshooting if it's not working for someone.
+Anyone in the Slack workspace can also type `/enter-week` to fill in their week without leaving Slack — same six locations, plus an optional extra-info checkbox (bike/pet/etc.), no separate login. See `docs/SLACK_INTEGRATION.md` for setup/troubleshooting if it's not working for someone.
 
 ---
 

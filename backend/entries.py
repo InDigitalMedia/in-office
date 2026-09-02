@@ -16,6 +16,47 @@ from schemas import EntryCreate
 
 logger = logging.getLogger(__name__)
 
+NEAL_STREET_BIKE_CAP = 2
+
+
+def _check_bike_capacity(session: Session, user_key: str, entries: list[EntryCreate], is_postgres: bool) -> None:
+    """Raises ValueError if this batch would put a 3rd distinct person's bike at
+    Neal Street on any single date. The cap is per whole day (not per morning/
+    afternoon split), and doesn't count this same user against themselves --
+    resubmitting/editing your own already-booked bike day must never self-block.
+    """
+    bike_dates = {e.date for e in entries if e.location == "Neal Street" and e.extra == "Bike"}
+    if not bike_dates:
+        return
+
+    if is_postgres:
+        # Serializes the check-then-write below against other users' concurrent
+        # submissions for the same date -- without this, two different people's
+        # requests could both pass the count check before either commits,
+        # letting a 3rd (or 4th) bike through. Keyed per-date, separate from the
+        # per-user lock above, since this race is specifically cross-user.
+        # Sorted so two overlapping multi-date submissions (e.g. one for Mon+Wed,
+        # another for Wed+Mon) always acquire their locks in the same relative
+        # order -- iterating a plain set here would order by hash, which varies
+        # with the set's contents and can have two submissions each hold one
+        # date's lock while waiting on the other's, deadlocking both.
+        for date in sorted(bike_dates):
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"bike:{date}"})
+
+    for date in sorted(bike_dates):
+        count = session.execute(
+            text("""
+                SELECT COUNT(DISTINCT user_key) FROM entry
+                WHERE date = :date AND location = 'Neal Street' AND extra = 'Bike' AND user_key != :user_key
+            """),
+            {"date": date, "user_key": user_key},
+        ).scalar() or 0
+        if count >= NEAL_STREET_BIKE_CAP:
+            raise ValueError(
+                f"Bike capacity full at Neal Street on {date} -- {NEAL_STREET_BIKE_CAP} bikes already booked. "
+                f"No days were saved -- please remove that day's bike and resubmit."
+            )
+
 
 def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate]) -> int:
     """Upsert a batch of entries for a user, atomically, in a single transaction.
@@ -43,8 +84,13 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
             else:
                 # Fallback: check engine URL
                 is_postgres = "postgresql" in str(engine.url).lower()
-        except Exception:
-            pass  # Default to SQLite pattern
+        except Exception as e:
+            # Falling back to the SQLite branch here also silently drops the
+            # per-user advisory lock below and the per-date bike lock in
+            # _check_bike_capacity -- on an actual Postgres deployment that
+            # reopens the exact interleaving race the per-user lock exists to
+            # prevent, so this needs to be visible rather than a bare `pass`.
+            logger.warning(f"Could not determine DB dialect, defaulting to SQLite pattern: {e}")
 
         if is_postgres:
             # Serialize concurrent upserts for the same user so one request's delete-then-
@@ -54,6 +100,8 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
             # COMMITTED, leaving both a full-day and a split row behind. Held for the
             # transaction's duration and auto-released on commit/rollback.
             session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:user_key))"), {"user_key": user_key})
+
+        _check_bike_capacity(session, user_key, entries, is_postgres)
 
         # Handle overwriting between split and full-day entries
         # Collect dates that have split entries (time_period is not None/empty)
@@ -116,13 +164,15 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
                 logger.info(f"Saving entry: date={entry_data.date}, location={entry_data.location}, time_period={time_period_value}")
                 result = session.execute(
                     text("""
-                        INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, created_at, updated_at)
-                        VALUES (:user_key, :user_name, :date, :location, :time_period, :client, :notes, :created_at, :updated_at)
+                        INSERT INTO entry (user_key, user_name, date, location, time_period, client, notes, extra, extra_note, created_at, updated_at)
+                        VALUES (:user_key, :user_name, :date, :location, :time_period, :client, :notes, :extra, :extra_note, :created_at, :updated_at)
                         ON CONFLICT (user_key, date, time_period) DO UPDATE
                         SET user_name = EXCLUDED.user_name,
                             location = EXCLUDED.location,
                             client = EXCLUDED.client,
                             notes = EXCLUDED.notes,
+                            extra = EXCLUDED.extra,
+                            extra_note = EXCLUDED.extra_note,
                             updated_at = EXCLUDED.updated_at
                     """),
                     {
@@ -133,6 +183,8 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
                         "time_period": time_period_value,
                         "client": entry_data.client,
                         "notes": entry_data.notes,
+                        "extra": entry_data.extra,
+                        "extra_note": entry_data.extra_note,
                         "created_at": now,
                         "updated_at": now,
                     }
@@ -153,6 +205,8 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
                     existing.time_period = time_period_value
                     existing.client = entry_data.client
                     existing.notes = entry_data.notes
+                    existing.extra = entry_data.extra
+                    existing.extra_note = entry_data.extra_note
                     existing.updated_at = now
                 else:
                     new_entry = Entry(
@@ -163,6 +217,8 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
                         time_period=time_period_value,
                         client=entry_data.client,
                         notes=entry_data.notes,
+                        extra=entry_data.extra,
+                        extra_note=entry_data.extra_note,
                         created_at=now,
                         updated_at=now,
                     )
@@ -178,7 +234,18 @@ def upsert_entries(session: Session, user_name: str, entries: list[EntryCreate])
         )
         return count
 
+    except ValueError:
+        # A genuine validation failure (empty entries, bike capacity) -- re-raise
+        # as-is so callers keep mapping ValueError to a 400, distinct from an
+        # infrastructure failure below.
+        session.rollback()
+        raise
     except Exception as e:
+        # Anything else (a dropped connection, a syntax error) is not a user
+        # mistake -- previously this was flattened into the same ValueError as
+        # above, which made a bike-cap rejection and a broken DB connection
+        # indistinguishable to callers (both became a 400). Re-raising the
+        # original exception type lets it surface as a 500 instead.
         session.rollback()
         logger.error(f"Error in bulk upsert: {str(e)}")
-        raise ValueError(str(e)) from e
+        raise

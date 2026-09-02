@@ -506,12 +506,12 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
   }
 
   function exportCSV() {
-    const rows: string[][] = [['User', 'Date', 'Location', 'Time Period', 'Client', 'Notes']]
+    const rows: string[][] = [['User', 'Date', 'Location', 'Time Period', 'Client', 'Notes', 'Extra', 'Extra Note']]
     filteredEntries
       .slice()
       .sort((a, b) => (a.date === b.date ? a.user_name.localeCompare(b.user_name) : a.date.localeCompare(b.date)))
       .forEach((e) => {
-        rows.push([e.user_name, e.date, normalizeLocationFromApi(e.location), e.time_period || '', e.client || '', e.notes || ''])
+        rows.push([e.user_name, e.date, normalizeLocationFromApi(e.location), e.time_period || '', e.client || '', e.notes || '', e.extra || '', e.extra_note || ''])
       })
     const suffix = dateFrom || dateTo ? `_${dateFrom || 'start'}_to_${dateTo || 'now'}` : '_all-time'
     downloadCSV(`location-report${suffix}.csv`, rows)

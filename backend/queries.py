@@ -10,6 +10,7 @@ from sqlmodel import Session
 from sqlalchemy import text
 
 from db_utils import check_time_period_column_exists, create_entry_from_row, latest_user_names, normalize_time_period
+from entries import NEAL_STREET_BIKE_CAP
 from schemas import SummaryRow
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ def get_week_entries(session: Session, week_start: str) -> list[SummaryRow]:
         result = session.execute(text("""
             SELECT id, user_key, user_name, date, location,
                    NULLIF(time_period, '') as time_period,
-                   client, notes, created_at, updated_at
+                   client, notes, extra, extra_note, created_at, updated_at
             FROM entry
             WHERE date >= :start_date AND date <= :end_date
             ORDER BY date, user_name, time_period
@@ -52,6 +53,8 @@ def get_week_entries(session: Session, week_start: str) -> list[SummaryRow]:
             time_period=normalize_time_period(getattr(entry, 'time_period', None)),
             client=entry.client,
             notes=entry.notes,
+            extra=getattr(entry, 'extra', None),
+            extra_note=getattr(entry, 'extra_note', None),
         )
         for entry in entries
     ]
@@ -76,6 +79,23 @@ def get_submitted_users(session: Session, week_start: str) -> list[str]:
         entries = [create_entry_from_row(row, include_time_period=False) for row in result.fetchall()]
 
     return latest_user_names(entries)
+
+
+def get_full_bike_dates(session: Session, week_start: str, exclude_user_key: str) -> set:
+    """Dates within the Mon-Fri week starting at week_start where Neal Street's
+    bike cap is already reached by people other than exclude_user_key -- used to
+    hide/grey out the "Bike" option for those dates in both the web app and the
+    Slack modal, so the cap is visible before someone tries to save rather than
+    only as a rejection."""
+    end_date = _week_end(week_start)
+    result = session.execute(text("""
+        SELECT date FROM entry
+        WHERE date >= :start_date AND date <= :end_date
+          AND location = 'Neal Street' AND extra = 'Bike' AND user_key != :user_key
+        GROUP BY date
+        HAVING COUNT(DISTINCT user_key) >= :cap
+    """), {"start_date": week_start, "end_date": end_date, "user_key": exclude_user_key, "cap": NEAL_STREET_BIKE_CAP})
+    return {row[0] for row in result.fetchall()}
 
 
 def get_last_week_entries_for_user(session: Session, user_key: str, week_start: str) -> dict:

@@ -30,18 +30,22 @@ def create_entry_from_row(row, include_time_period: bool = False) -> object:
     entry.date = row[3]
     entry.location = row[4]
     if include_time_period and len(row) > 8:
-        # Row includes time_period: id, user_key, user_name, date, location, time_period, client, notes, created_at, updated_at
+        # Row includes time_period + extras: id, user_key, user_name, date, location, time_period, client, notes, extra, extra_note, created_at, updated_at
         # Normalize empty string to None for consistency
         entry.time_period = None if (not row[5] or row[5] == '') else row[5]
         entry.client = row[6]
         entry.notes = row[7]
-        entry.created_at = row[8]
-        entry.updated_at = row[9]
+        entry.extra = row[8]
+        entry.extra_note = row[9]
+        entry.created_at = row[10]
+        entry.updated_at = row[11]
     else:
         # Row doesn't include time_period: id, user_key, user_name, date, location, client, notes, created_at, updated_at
         entry.time_period = None
         entry.client = row[5]
         entry.notes = row[6]
+        entry.extra = None
+        entry.extra_note = None
         entry.created_at = row[7]
         entry.updated_at = row[8]
     return entry

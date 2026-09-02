@@ -1,9 +1,13 @@
+export type ExtraType = 'Bike' | 'Pet' | 'Other'
+
 export interface Entry {
   date: string
   location: string
   time_period?: string | null  // 'Morning', 'Afternoon', or null for full day
   client?: string | null
   notes?: string | null
+  extra?: ExtraType | null
+  extra_note?: string | null  // free-text description, only used when extra === 'Other'
 }
 
 export interface BulkUpsertRequest {
@@ -23,6 +27,8 @@ export interface SummaryRow {
   time_period?: string | null  // 'Morning', 'Afternoon', or null for full day
   client?: string | null
   notes?: string | null
+  extra?: ExtraType | null
+  extra_note?: string | null
 }
 
 export interface WeekSummaryResponse {
@@ -46,6 +52,15 @@ export interface WeekEntry {
   isCustomClient: boolean
   morningIsCustomClient?: boolean
   afternoonIsCustomClient?: boolean
+  hasExtra: boolean
+  extraType?: ExtraType
+  extraNote: string
+  morningHasExtra?: boolean
+  morningExtraType?: ExtraType
+  morningExtraNote?: string
+  afternoonHasExtra?: boolean
+  afternoonExtraType?: ExtraType
+  afternoonExtraNote?: string
 }
 
 export type ClientOption = 'FT' | 'Other'
@@ -56,6 +71,8 @@ export interface ExistingEntry {
   time_period?: string | null
   client?: string | null
   notes?: string | null
+  extra?: ExtraType | null
+  extra_note?: string | null
 }
 
 export interface AdminEntry {
@@ -66,6 +83,8 @@ export interface AdminEntry {
   time_period?: string | null
   client?: string | null
   notes?: string | null
+  extra?: ExtraType | null
+  extra_note?: string | null
   created_at: string
   updated_at?: string | null
 }

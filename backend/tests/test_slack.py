@@ -698,6 +698,7 @@ def test_handle_location_change_shows_client_field_and_preserves_other_days(monk
     monkeypatch.setattr(slack_client, "update_view", lambda view_id, view_hash, view: captured.update(
         view_id=view_id, view_hash=view_hash, view=view
     ))
+    monkeypatch.setattr(slack_routes.queries, "get_full_bike_dates", lambda session, week_start, user_key: set())
 
     # Simulate: day 0 already had WFH set (no client block), day 1 just got
     # changed to "Client Office" with no text yet -- the resulting rebuilt view
@@ -716,7 +717,7 @@ def test_handle_location_change_shows_client_field_and_preserves_other_days(monk
         }
     }
 
-    response = slack_routes._handle_location_change(payload)
+    response = slack_routes._handle_location_change(None, payload)
 
     assert response.status_code == 200
     assert captured["view_id"] == "V123"
@@ -749,6 +750,7 @@ def test_same_as_last_week_opens_prefilled_confirmation_modal_instead_of_saving(
             1: {"full": _FullEntry("WFH"), "morning": None, "afternoon": None},
         },
     )
+    monkeypatch.setattr(slack_routes.queries, "get_full_bike_dates", lambda session, week_start, user_key: set())
 
     saved = {"called": False}
     monkeypatch.setattr(
@@ -793,6 +795,7 @@ def test_same_as_last_week_carries_over_a_split_day_in_the_modal(monkeypatch):
             1: {"full": None, "morning": _FullEntry("Neal Street"), "afternoon": _FullEntry("WFH")},
         },
     )
+    monkeypatch.setattr(slack_routes.queries, "get_full_bike_dates", lambda session, week_start, user_key: set())
 
     captured = {}
     monkeypatch.setattr(

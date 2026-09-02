@@ -4,12 +4,17 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlmodel import SQLModel
 
 
+VALID_EXTRAS = {"Bike", "Pet", "Other"}
+
+
 class EntryCreate(BaseModel):
     date: str  # YYYY-MM-DD format
     location: str
     time_period: str | None = None  # 'Morning', 'Afternoon', or None for full day
     client: str | None = None
     notes: str | None = None
+    extra: str | None = None  # 'Bike', 'Pet', 'Other', or None for "nothing extra"
+    extra_note: str | None = None  # free-text description, required when extra == 'Other'
 
     @field_validator("location")
     @classmethod
@@ -27,12 +32,21 @@ class EntryCreate(BaseModel):
             raise ValueError(f"Location must be one of: {valid_locations}")
         return normalized
 
+    @field_validator("extra")
+    @classmethod
+    def validate_extra(cls, v):
+        if v is not None and v not in VALID_EXTRAS:
+            raise ValueError(f"extra must be one of: {VALID_EXTRAS}")
+        return v
+
     @model_validator(mode="after")
     def validate_client(self):
         if self.location in {"Client Office", "Client"} and not self.client:
             raise ValueError("Client name is required when location is 'Client Office'")
         if self.location == "Other" and not self.client:
             raise ValueError("Location description is required when location is 'Other'")
+        if self.extra == "Other" and not self.extra_note:
+            raise ValueError("extra_note is required when extra is 'Other'")
         return self
 
 
@@ -53,6 +67,8 @@ class SummaryRow(BaseModel):
     time_period: str | None = None  # 'Morning', 'Afternoon', or None for full day
     client: str | None = None
     notes: str | None = None
+    extra: str | None = None
+    extra_note: str | None = None
 
 
 class WeekSummaryResponse(BaseModel):
@@ -71,5 +87,7 @@ class EntryResponse(SQLModel):
     time_period: str | None = None
     client: str | None = None
     notes: str | None = None
+    extra: str | None = None
+    extra_note: str | None = None
     created_at: datetime
     updated_at: datetime | None = None

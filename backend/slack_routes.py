@@ -82,11 +82,23 @@ def _prefill_entry_from_row(row) -> dict:
     return entry
 
 
+def _prefill_extra_from_row(row) -> dict:
+    """{"has_extra": bool, "extra_type": str|None, "extra_note": str|None} for
+    one saved entry's "extra info" state -- see _prefill_entry_from_row for the
+    location-field counterpart this mirrors."""
+    return {
+        "has_extra": bool(getattr(row, "extra", None)),
+        "extra_type": getattr(row, "extra", None),
+        "extra_note": getattr(row, "extra_note", None),
+    }
+
+
 def _build_prefill(session: Session, user_key: str, week_start: str) -> dict:
-    """{offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...}}}
-    for this user's existing entries this week, for pre-filling the modal --
-    split days are fully represented (checkbox pre-checked, both halves
-    pre-filled), same as full days."""
+    """{offset: {"split": bool, "full": {...}, "morning": {...}, "afternoon": {...},
+    "full_extra": {...}, "morning_extra": {...}, "afternoon_extra": {...}}} for this
+    user's existing entries this week, for pre-filling the modal -- split days
+    are fully represented (checkbox pre-checked, both halves pre-filled), same
+    as full days."""
     start_date = datetime.strptime(week_start, "%Y-%m-%d").date()
     prefill: dict = {}
     for row in queries.get_week_entries(session, week_start):
@@ -97,15 +109,21 @@ def _build_prefill(session: Session, user_key: str, week_start: str) -> dict:
         if not (0 <= offset <= 4):
             continue
 
-        day = prefill.setdefault(offset, {"split": False, "full": {}, "morning": {}, "afternoon": {}})
+        day = prefill.setdefault(
+            offset,
+            {"split": False, "full": {}, "morning": {}, "afternoon": {}, "full_extra": {}, "morning_extra": {}, "afternoon_extra": {}},
+        )
         if row.time_period == "Morning":
             day["split"] = True
             day["morning"] = _prefill_entry_from_row(row)
+            day["morning_extra"] = _prefill_extra_from_row(row)
         elif row.time_period == "Afternoon":
             day["split"] = True
             day["afternoon"] = _prefill_entry_from_row(row)
+            day["afternoon_extra"] = _prefill_extra_from_row(row)
         else:
             day["full"] = _prefill_entry_from_row(row)
+            day["full_extra"] = _prefill_extra_from_row(row)
     return prefill
 
 
@@ -118,13 +136,23 @@ def _build_prefill_from_last_week(session: Session, user_key: str, week_start: s
     prefill: dict = {}
     for offset, slot in last_week.items():
         if slot["morning"] or slot["afternoon"]:
-            day = {"split": True, "full": {}, "morning": {}, "afternoon": {}}
+            day = {"split": True, "full": {}, "morning": {}, "afternoon": {}, "full_extra": {}, "morning_extra": {}, "afternoon_extra": {}}
             if slot["morning"]:
                 day["morning"] = _prefill_entry_from_row(slot["morning"])
+                day["morning_extra"] = _prefill_extra_from_row(slot["morning"])
             if slot["afternoon"]:
                 day["afternoon"] = _prefill_entry_from_row(slot["afternoon"])
+                day["afternoon_extra"] = _prefill_extra_from_row(slot["afternoon"])
         elif slot["full"]:
-            day = {"split": False, "full": _prefill_entry_from_row(slot["full"]), "morning": {}, "afternoon": {}}
+            day = {
+                "split": False,
+                "full": _prefill_entry_from_row(slot["full"]),
+                "morning": {},
+                "afternoon": {},
+                "full_extra": _prefill_extra_from_row(slot["full"]),
+                "morning_extra": {},
+                "afternoon_extra": {},
+            }
         else:
             continue
         prefill[offset] = day
@@ -142,7 +170,8 @@ def _open_week_modal(session: Session, trigger_id: str, user_id: str, week_start
     resolved_name, _matched = _resolve_identity(user_id)
     user_key = resolved_name.strip().lower()
     prefill = _build_prefill(session, user_key, week_start)
-    slack_client.open_view(trigger_id, slack_views.build_week_modal(week_start, resolved_name, prefill))
+    bike_full_dates = queries.get_full_bike_dates(session, week_start, user_key)
+    slack_client.open_view(trigger_id, slack_views.build_week_modal(week_start, resolved_name, prefill, bike_full_dates=bike_full_dates))
 
 
 @slack_router.post("/slack/commands")
@@ -191,7 +220,7 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
     # changing inside an already-open modal -- rebuild its blocks (to show/hide
     # the relevant client field) rather than treating this like a quick-fill button.
     if action_id in slack_views.DISPATCH_ACTION_IDS:
-        return _handle_location_change(payload)
+        return _handle_location_change(session, payload)
 
     # "See Full Schedule" is a url-type button -- Slack still sends us a
     # block_actions payload for it (it just also opens the link client-side),
@@ -213,7 +242,8 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
 
     if action_id == slack_views.ACTION_FILL_WEEK:
         prefill = _build_prefill(session, user_key, week_start)
-        slack_client.open_view(trigger_id, slack_views.build_week_modal(week_start, resolved_name, prefill))
+        bike_full_dates = queries.get_full_bike_dates(session, week_start, user_key)
+        slack_client.open_view(trigger_id, slack_views.build_week_modal(week_start, resolved_name, prefill, bike_full_dates=bike_full_dates))
         return Response(status_code=200)
 
     if action_id == slack_views.ACTION_SAME_AS_LAST_WEEK:
@@ -249,22 +279,29 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
                 slack_client.respond_via_response_url(response_url, text, blocks=blocks)
             return Response(status_code=200)
 
-        view = slack_views.build_week_modal(week_start, resolved_name, prefill, title="Same as last week")
+        bike_full_dates = queries.get_full_bike_dates(session, week_start, user_key)
+        view = slack_views.build_week_modal(week_start, resolved_name, prefill, title="Same as last week", bike_full_dates=bike_full_dates)
         slack_client.open_view(trigger_id, view)
         return Response(status_code=200)
 
     return Response(status_code=200)
 
 
-def _handle_location_change(payload: dict) -> Response:
-    """A day's location select changed while the modal is still open -- rebuild
-    the view so that day's client/description field appears or disappears, then
-    push it back via views.update. No DB access needed here."""
+def _handle_location_change(session: Session, payload: dict) -> Response:
+    """A day's location select (or the extra-info checkbox/dropdown) changed
+    while the modal is still open -- rebuild the view so the relevant
+    client/description/extra-type field appears, disappears, or (for Bike)
+    becomes unavailable, then push it back via views.update. Needs a DB read
+    (unlike before extras existed) to recompute which dates already have Neal
+    Street's bike cap reached."""
     view = payload["view"]
     metadata = json.loads(view["private_metadata"])
     day_state = slack_views.extract_day_state(view["state"]["values"])
+    user_key = metadata["user_name"].strip().lower()
+    bike_full_dates = queries.get_full_bike_dates(session, metadata["week_start"], user_key)
     updated_view = slack_views.rebuild_modal_view(
-        metadata["week_start"], metadata["user_name"], day_state, title=metadata.get("title"), note=metadata.get("note")
+        metadata["week_start"], metadata["user_name"], day_state, title=metadata.get("title"), note=metadata.get("note"),
+        bike_full_dates=bike_full_dates,
     )
     slack_client.update_view(view["id"], view.get("hash"), updated_view)
     return Response(status_code=200)

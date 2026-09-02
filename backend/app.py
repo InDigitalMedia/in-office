@@ -62,7 +62,18 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Migration 002 traceback: {traceback.format_exc()}")
     except Exception as e:
         logger.warning(f"Migration check failed: {str(e)}")
-    
+
+    # Run migration 004: Add extra/extra_note (Bike/Pet/Other). Deliberately
+    # outside the try/except above and allowed to raise -- unlike migration 002,
+    # there's no runtime fallback for a missing extra/extra_note column (every
+    # query and write path assumes it exists), so a swallowed failure here would
+    # leave the app reporting healthy while every save and every week-summary
+    # read 500s. Failing startup loudly is the honest behavior.
+    logger.info("Attempting to run migration 004 (extras)...")
+    from migrations.migrate_004_add_extras import migrate as migrate_004
+    migrate_004(engine)
+    logger.info("Migration 004 completed (check logs above for details)")
+
     logger.info("Database initialized")
     yield
 
@@ -211,6 +222,8 @@ def get_entries(
                 time_period=normalize_time_period(getattr(entry, 'time_period', None)),
                 client=entry.client,
                 notes=entry.notes,
+                extra=getattr(entry, 'extra', None),
+                extra_note=getattr(entry, 'extra_note', None),
                 created_at=entry.created_at,
                 updated_at=entry.updated_at,
             )
@@ -388,6 +401,8 @@ def check_existing_entries(
                         "time_period": normalize_time_period(getattr(e, 'time_period', None)),
                         "client": e.client,
                         "notes": e.notes,
+                        "extra": getattr(e, 'extra', None),
+                        "extra_note": getattr(e, 'extra_note', None),
                     }
                     for e in user_entries
                 ]

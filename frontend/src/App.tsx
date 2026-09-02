@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry } from './types'
+import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry, ExtraType } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers, deleteUserWeek, verifyAdminTabPassword } from './api'
 import AdminDashboard from './AdminDashboard'
 // Load team and client lists from public at runtime (no imports from root)
@@ -80,6 +80,11 @@ export function normalizeLocationFromApi(location: string): WorkLocation {
   }
 }
 
+// Extra-info checkbox+dropdown options, shared by the "extra info" control and
+// the frontend's own bike-capacity check (mirrors backend/schemas.py's VALID_EXTRAS).
+export const EXTRA_TYPE_OPTIONS: ExtraType[] = ['Bike', 'Pet', 'Other']
+export const NEAL_STREET_BIKE_CAP = 2
+
 function generateWeekEntries(weekStart: Date, isSplit: boolean = false): WeekEntry[] {
   const entries: WeekEntry[] = []
   // Only generate Monday-Friday (5 days)
@@ -93,6 +98,8 @@ function generateWeekEntries(weekStart: Date, isSplit: boolean = false): WeekEnt
         client: '',
         notes: '',
         isCustomClient: false,
+        hasExtra: false,
+        extraNote: '',
     }
     if (isSplit) {
       baseEntry.morningLocation = 'Neal Street' as WorkLocation
@@ -103,10 +110,33 @@ function generateWeekEntries(weekStart: Date, isSplit: boolean = false): WeekEnt
       baseEntry.afternoonNotes = ''
       baseEntry.morningIsCustomClient = false
       baseEntry.afternoonIsCustomClient = false
+      baseEntry.morningHasExtra = false
+      baseEntry.afternoonHasExtra = false
+      baseEntry.morningExtraNote = ''
+      baseEntry.afternoonExtraNote = ''
     }
     entries.push(baseEntry)
   }
   return entries
+}
+
+// Distinct users (excluding excludeUserName) who have Neal Street + Bike on
+// each date in summaryEntries -- used to grey out "Bike" once 2 are already
+// booked. Excluding the current user means editing your own existing bike day
+// never locks you out of it.
+function computeBikeCountByDate(summaryEntries: SummaryRow[], excludeUserName: string): Map<string, number> {
+  const excludeKey = excludeUserName.trim().toLowerCase()
+  const usersByDate = new Map<string, Set<string>>()
+  for (const entry of summaryEntries) {
+    if (entry.location !== 'Neal Street' || entry.extra !== 'Bike') continue
+    const userKey = entry.user_name.trim().toLowerCase()
+    if (userKey === excludeKey) continue
+    if (!usersByDate.has(entry.date)) usersByDate.set(entry.date, new Set())
+    usersByDate.get(entry.date)!.add(userKey)
+  }
+  const counts = new Map<string, number>()
+  for (const [date, users] of usersByDate) counts.set(date, users.size)
+  return counts
 }
 
 function groupEntriesByDateAndLocation(entries: SummaryRow[]): {
@@ -148,6 +178,18 @@ export function getLocationAccentColor(location: string): string {
 
 // Location order for consistent display
 export const locationOrder = ['Neal Street', 'WFH', 'Client Office', 'Working From Abroad', 'Holiday', 'Other']
+
+const EXTRA_EMOJI: Record<string, string> = { Bike: '🚲', Pet: '🐾', Other: '📌' }
+
+// " 🚲"/" 🐾"/" 📌 <note>" appended after a name in the Who's-where dashboard --
+// mirrors backend/slack_views.py's _extra_suffix so the same info is visible
+// on the website as in Slack.
+function extraBadge(entry: SummaryRow): string {
+  if (!entry.extra) return ''
+  const emoji = EXTRA_EMOJI[entry.extra] || '📌'
+  if (entry.extra === 'Other' && entry.extra_note) return ` ${emoji} ${entry.extra_note}`
+  return ` ${emoji}`
+}
 
 function getLocationBadgeClass(location: string): string {
   switch (location.toLowerCase()) {
@@ -335,7 +377,7 @@ function App() {
   // Overwrite confirmation + undo
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
   const [isOverwriteConfirmed, setIsOverwriteConfirmed] = useState(false)
-  const [backupBeforeSave, setBackupBeforeSave] = useState<Array<{date: string; location: string; time_period?: string | null; client?: string | null; notes?: string | null}>>([])
+  const [backupBeforeSave, setBackupBeforeSave] = useState<Array<{date: string; location: string; time_period?: string | null; client?: string | null; notes?: string | null; extra?: ExtraType | null; extra_note?: string | null}>>([])
   const [showUndoBar, setShowUndoBar] = useState(false)
 
   // Runtime-loaded config
@@ -382,9 +424,11 @@ function App() {
     loadConfigs()
   }, [])
 
-  // Load summary when switching to dashboard view
+  // Load summary when switching to dashboard view, and also while filling in
+  // the week -- the "fill" view needs everyone else's entries to know which
+  // dates already have Neal Street's bike cap reached (see bikeCountByDate).
   useEffect(() => {
-    if (viewMode === 'dashboard') {
+    if (viewMode === 'dashboard' || viewMode === 'fill') {
       loadWeekSummary()
     }
   }, [viewMode, weekStart])
@@ -518,7 +562,10 @@ function App() {
             location: normalizedLocation,
             client: dayEntries.full.client || '',
             notes: dayEntries.full.notes || '',
-            isCustomClient: isCustomClient
+            isCustomClient: isCustomClient,
+            hasExtra: !!dayEntries.full.extra,
+            extraType: dayEntries.full.extra || undefined,
+            extraNote: dayEntries.full.extra_note || '',
           }
         }
 
@@ -532,6 +579,9 @@ function App() {
             result.morningLocation = normalizedLocation
             result.morningClient = dayEntries.morning.client || ''
             result.morningNotes = dayEntries.morning.notes || ''
+            result.morningHasExtra = !!dayEntries.morning.extra
+            result.morningExtraType = dayEntries.morning.extra || undefined
+            result.morningExtraNote = dayEntries.morning.extra_note || ''
             if (normalizedLocation === 'Client Office') {
               result.morningIsCustomClient = !clientOptions.includes(dayEntries.morning.client || '')
             } else if (normalizedLocation === 'Other') {
@@ -545,6 +595,9 @@ function App() {
             result.morningClient = ''
             result.morningNotes = ''
             result.morningIsCustomClient = false
+            result.morningHasExtra = false
+            result.morningExtraType = undefined
+            result.morningExtraNote = ''
           }
 
           if (dayEntries.afternoon) {
@@ -552,6 +605,9 @@ function App() {
             result.afternoonLocation = normalizedLocation
             result.afternoonClient = dayEntries.afternoon.client || ''
             result.afternoonNotes = dayEntries.afternoon.notes || ''
+            result.afternoonHasExtra = !!dayEntries.afternoon.extra
+            result.afternoonExtraType = dayEntries.afternoon.extra || undefined
+            result.afternoonExtraNote = dayEntries.afternoon.extra_note || ''
             if (normalizedLocation === 'Client Office') {
               result.afternoonIsCustomClient = !clientOptions.includes(dayEntries.afternoon.client || '')
             } else if (normalizedLocation === 'Other') {
@@ -565,6 +621,9 @@ function App() {
             result.afternoonClient = ''
             result.afternoonNotes = ''
             result.afternoonIsCustomClient = false
+            result.afternoonHasExtra = false
+            result.afternoonExtraType = undefined
+            result.afternoonExtraNote = ''
           }
 
           return result
@@ -741,6 +800,63 @@ function App() {
     setWeekEntries(newEntries)
   }
 
+  const handleExtraToggle = (index: number, checked: boolean, period?: 'morning' | 'afternoon') => {
+    const newEntries = [...weekEntries]
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+
+    if (isSplit && period) {
+      if (period === 'morning') {
+        newEntries[index].morningHasExtra = checked
+        if (!checked) { newEntries[index].morningExtraType = undefined; newEntries[index].morningExtraNote = '' }
+      } else {
+        newEntries[index].afternoonHasExtra = checked
+        if (!checked) { newEntries[index].afternoonExtraType = undefined; newEntries[index].afternoonExtraNote = '' }
+      }
+    } else {
+      newEntries[index].hasExtra = checked
+      if (!checked) { newEntries[index].extraType = undefined; newEntries[index].extraNote = '' }
+    }
+    setWeekEntries(newEntries)
+  }
+
+  const handleExtraTypeChange = (index: number, extraType: ExtraType, period?: 'morning' | 'afternoon') => {
+    const newEntries = [...weekEntries]
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+
+    if (isSplit && period) {
+      if (period === 'morning') {
+        newEntries[index].morningExtraType = extraType
+        if (extraType !== 'Other') newEntries[index].morningExtraNote = ''
+      } else {
+        newEntries[index].afternoonExtraType = extraType
+        if (extraType !== 'Other') newEntries[index].afternoonExtraNote = ''
+      }
+    } else {
+      newEntries[index].extraType = extraType
+      if (extraType !== 'Other') newEntries[index].extraNote = ''
+    }
+    setWeekEntries(newEntries)
+  }
+
+  const handleExtraNoteChange = (index: number, extraNote: string, period?: 'morning' | 'afternoon') => {
+    const newEntries = [...weekEntries]
+    const entry = newEntries[index]
+    const isSplit = splitDays.has(entry.date)
+
+    if (isSplit && period) {
+      if (period === 'morning') {
+        newEntries[index].morningExtraNote = extraNote
+      } else {
+        newEntries[index].afternoonExtraNote = extraNote
+      }
+    } else {
+      newEntries[index].extraNote = extraNote
+    }
+    setWeekEntries(newEntries)
+  }
+
   // Shared between mobile card and desktop table layouts
   const toggleSplit = (index: number) => {
     const entry = weekEntries[index]
@@ -760,6 +876,12 @@ function App() {
           afternoonNotes: undefined,
           morningIsCustomClient: undefined,
           afternoonIsCustomClient: undefined,
+          morningHasExtra: undefined,
+          afternoonHasExtra: undefined,
+          morningExtraType: undefined,
+          afternoonExtraType: undefined,
+          morningExtraNote: undefined,
+          afternoonExtraNote: undefined,
         }
         setWeekEntries(newEntries)
       } else {
@@ -777,6 +899,12 @@ function App() {
           afternoonNotes: current.notes || '',
           morningIsCustomClient: current.isCustomClient || false,
           afternoonIsCustomClient: current.isCustomClient || false,
+          morningHasExtra: current.hasExtra || false,
+          afternoonHasExtra: current.hasExtra || false,
+          morningExtraType: current.extraType,
+          afternoonExtraType: current.extraType,
+          morningExtraNote: current.extraNote || '',
+          afternoonExtraNote: current.extraNote || '',
         }
         setWeekEntries(newEntries)
       }
@@ -793,6 +921,9 @@ function App() {
       entry.client = ''
       entry.notes = ''
       entry.isCustomClient = false
+      entry.hasExtra = false
+      entry.extraType = undefined
+      entry.extraNote = ''
       // Also update split morning/afternoon if the day is in split mode
       if (splitDays.has(entry.date)) {
         entry.morningLocation = location
@@ -803,6 +934,12 @@ function App() {
         entry.afternoonNotes = ''
         entry.morningIsCustomClient = false
         entry.afternoonIsCustomClient = false
+        entry.morningHasExtra = false
+        entry.afternoonHasExtra = false
+        entry.morningExtraType = undefined
+        entry.afternoonExtraType = undefined
+        entry.morningExtraNote = ''
+        entry.afternoonExtraNote = ''
       }
     })
 
@@ -868,10 +1005,16 @@ function App() {
             client: slot.full.client || '',
             notes: slot.full.notes || '',
             isCustomClient,
+            hasExtra: !!slot.full.extra,
+            extraType: slot.full.extra || undefined,
+            extraNote: slot.full.extra_note || '',
             morningLocation: undefined, afternoonLocation: undefined,
             morningClient: undefined, afternoonClient: undefined,
             morningNotes: undefined, afternoonNotes: undefined,
             morningIsCustomClient: undefined, afternoonIsCustomClient: undefined,
+            morningHasExtra: undefined, afternoonHasExtra: undefined,
+            morningExtraType: undefined, afternoonExtraType: undefined,
+            morningExtraNote: undefined, afternoonExtraNote: undefined,
           }
           newSplitDays.delete(entry.date)
         } else if (slot.morning || slot.afternoon) {
@@ -882,20 +1025,28 @@ function App() {
             result.morningLocation = loc
             result.morningClient = slot.morning.client || ''
             result.morningNotes = slot.morning.notes || ''
+            result.morningHasExtra = !!slot.morning.extra
+            result.morningExtraType = slot.morning.extra || undefined
+            result.morningExtraNote = slot.morning.extra_note || ''
             result.morningIsCustomClient = loc === 'Other' ? true
               : loc === 'Client Office' ? !clientOptions.includes(slot.morning.client || '') : false
           } else {
             result.morningLocation = 'Neal Street'; result.morningClient = ''; result.morningNotes = ''; result.morningIsCustomClient = false
+            result.morningHasExtra = false; result.morningExtraType = undefined; result.morningExtraNote = ''
           }
           if (slot.afternoon) {
             const loc = normalizeLocationFromApi(slot.afternoon.location) as WorkLocation
             result.afternoonLocation = loc
             result.afternoonClient = slot.afternoon.client || ''
             result.afternoonNotes = slot.afternoon.notes || ''
+            result.afternoonHasExtra = !!slot.afternoon.extra
+            result.afternoonExtraType = slot.afternoon.extra || undefined
+            result.afternoonExtraNote = slot.afternoon.extra_note || ''
             result.afternoonIsCustomClient = loc === 'Other' ? true
               : loc === 'Client Office' ? !clientOptions.includes(slot.afternoon.client || '') : false
           } else {
             result.afternoonLocation = 'Neal Street'; result.afternoonClient = ''; result.afternoonNotes = ''; result.afternoonIsCustomClient = false
+            result.afternoonHasExtra = false; result.afternoonExtraType = undefined; result.afternoonExtraNote = ''
           }
           newEntries[index] = result
         }
@@ -912,6 +1063,16 @@ function App() {
       setLoading(false)
     }
   }
+
+  // Distinct users (excluding the current one) already booked in for a bike at
+  // Neal Street on each date -- drives both the "Bike" option's disabled state
+  // and the client-side capacity check below (the server enforces this too,
+  // as the source of truth against races -- this is purely so the block is
+  // visible before saving rather than only as a rejection).
+  const bikeCountByDate = useMemo(
+    () => computeBikeCountByDate(summaryEntries, userName),
+    [summaryEntries, userName]
+  )
 
   const validateEntries = (): string | null => {
     if (!userName.trim()) {
@@ -938,6 +1099,16 @@ function App() {
             }
           }
         }
+        if (entry.morningHasExtra && !entry.morningExtraType) {
+          return `Please choose what you're bringing (Bike/Pet/Other) for ${entry.dayName} (Morning), or untick "Extra info?"`
+        }
+        if (entry.morningHasExtra && entry.morningExtraType === 'Other' && !entry.morningExtraNote?.trim()) {
+          return `Please describe what you're bringing for ${entry.dayName} (Morning)`
+        }
+        if (entry.morningHasExtra && entry.morningExtraType === 'Bike' && entry.morningLocation === 'Neal Street'
+            && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP) {
+          return `Bike capacity full at Neal Street on ${entry.dayName} (Morning) -- ${NEAL_STREET_BIKE_CAP} bikes already booked`
+        }
         // Validate afternoon entry if location is set
         if (entry.afternoonLocation) {
           if (entry.afternoonLocation === 'Client Office') {
@@ -954,6 +1125,16 @@ function App() {
             }
           }
         }
+        if (entry.afternoonHasExtra && !entry.afternoonExtraType) {
+          return `Please choose what you're bringing (Bike/Pet/Other) for ${entry.dayName} (Afternoon), or untick "Extra info?"`
+        }
+        if (entry.afternoonHasExtra && entry.afternoonExtraType === 'Other' && !entry.afternoonExtraNote?.trim()) {
+          return `Please describe what you're bringing for ${entry.dayName} (Afternoon)`
+        }
+        if (entry.afternoonHasExtra && entry.afternoonExtraType === 'Bike' && entry.afternoonLocation === 'Neal Street'
+            && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP) {
+          return `Bike capacity full at Neal Street on ${entry.dayName} (Afternoon) -- ${NEAL_STREET_BIKE_CAP} bikes already booked`
+        }
       } else {
         // Validate full day entry
       if (entry.location === 'Client Office') {
@@ -969,6 +1150,16 @@ function App() {
         if (!entry.client.trim()) {
           return `Please enter a location description for ${entry.dayName}`
           }
+        }
+        if (entry.hasExtra && !entry.extraType) {
+          return `Please choose what you're bringing (Bike/Pet/Other) for ${entry.dayName}, or untick "Extra info?"`
+        }
+        if (entry.hasExtra && entry.extraType === 'Other' && !entry.extraNote.trim()) {
+          return `Please describe what you're bringing for ${entry.dayName}`
+        }
+        if (entry.hasExtra && entry.extraType === 'Bike' && entry.location === 'Neal Street'
+            && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP) {
+          return `Bike capacity full at Neal Street on ${entry.dayName} -- ${NEAL_STREET_BIKE_CAP} bikes already booked`
         }
       }
     }
@@ -1000,7 +1191,7 @@ function App() {
       if (existingEntriesCount > 0) {
         try {
           const current = await getUserEntriesForWeek(userName.trim(), formatDate(weekStart))
-          backup = current.map(e => ({ date: e.date, location: e.location, time_period: e.time_period, client: e.client, notes: e.notes }))
+          backup = current.map(e => ({ date: e.date, location: e.location, time_period: e.time_period, client: e.client, notes: e.notes, extra: e.extra, extra_note: e.extra_note }))
           setBackupBeforeSave(backup)
         } catch {
           // if backup fails, proceed without undo
@@ -1025,6 +1216,8 @@ function App() {
                 ? entry.morningClient.trim()
                 : undefined,
               notes: entry.morningNotes?.trim() || undefined,
+              extra: entry.morningHasExtra ? entry.morningExtraType : undefined,
+              extra_note: entry.morningHasExtra && entry.morningExtraType === 'Other' ? entry.morningExtraNote?.trim() || undefined : undefined,
             })
           }
           // Add afternoon entry if location is set
@@ -1037,6 +1230,8 @@ function App() {
                 ? entry.afternoonClient.trim()
                 : undefined,
               notes: entry.afternoonNotes?.trim() || undefined,
+              extra: entry.afternoonHasExtra ? entry.afternoonExtraType : undefined,
+              extra_note: entry.afternoonHasExtra && entry.afternoonExtraType === 'Other' ? entry.afternoonExtraNote?.trim() || undefined : undefined,
             })
           }
         } else {
@@ -1049,6 +1244,8 @@ function App() {
             ? entry.client.trim()
             : undefined,
           notes: entry.notes.trim() || undefined,
+          extra: entry.hasExtra ? entry.extraType : undefined,
+          extra_note: entry.hasExtra && entry.extraType === 'Other' ? entry.extraNote.trim() || undefined : undefined,
           })
         }
       }
@@ -1108,6 +1305,8 @@ function App() {
           time_period: e.time_period,
           client: e.client || undefined,
           notes: e.notes || undefined,
+          extra: e.extra || undefined,
+          extra_note: e.extra_note || undefined,
         })),
       }
       await saveWeek(request)
@@ -1205,6 +1404,54 @@ function App() {
     }
     return naPlaceholder
   }
+
+  const renderExtraControl = (
+    hasExtra: boolean,
+    extraType: ExtraType | undefined,
+    extraNote: string | undefined,
+    bikeDisabled: boolean,
+    onToggle: (checked: boolean) => void,
+    onTypeChange: (type: ExtraType) => void,
+    onNoteChange: (note: string) => void,
+  ) => (
+    <div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
+        <input type="checkbox" checked={hasExtra} onChange={(e) => onToggle(e.target.checked)} />
+        Extra info?
+      </label>
+      {hasExtra && (
+        <>
+          <select
+            value={extraType || ''}
+            onChange={(e) => onTypeChange(e.target.value as ExtraType)}
+            style={{ marginTop: '4px' }}
+          >
+            <option value="" disabled>Choose...</option>
+            {EXTRA_TYPE_OPTIONS.map((t) => (
+              <option key={t} value={t} disabled={t === 'Bike' && bikeDisabled}>
+                {t === 'Bike' && bikeDisabled ? 'Bike (full)' : t}
+              </option>
+            ))}
+          </select>
+          {extraType === 'Bike' && bikeDisabled && (
+            <div style={{ fontSize: '12px', color: 'var(--warn-text)', marginTop: '4px' }}>
+              {NEAL_STREET_BIKE_CAP} bikes already booked at Neal Street that day
+            </div>
+          )}
+          {extraType === 'Other' && (
+            <input
+              className="client-input"
+              type="text"
+              value={extraNote || ''}
+              onChange={(e) => onNoteChange(e.target.value)}
+              placeholder="Describe what you're bringing"
+              style={{ marginTop: '4px' }}
+            />
+          )}
+        </>
+      )}
+    </div>
+  )
 
   const handleAdminPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1629,6 +1876,17 @@ function App() {
                             placeholder="Optional notes"
                             style={{ width: '100%', marginTop: '8px' }}
                           />
+                          <div style={{ marginTop: '8px' }}>
+                            {renderExtraControl(
+                              !!entry.morningHasExtra,
+                              entry.morningExtraType,
+                              entry.morningExtraNote,
+                              entry.morningLocation === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                              (checked) => handleExtraToggle(index, checked, 'morning'),
+                              (type) => handleExtraTypeChange(index, type, 'morning'),
+                              (note) => handleExtraNoteChange(index, note, 'morning'),
+                            )}
+                          </div>
                         </div>
                         <div className="day-card-period">
                           <div className="period-label">Afternoon</div>
@@ -1647,6 +1905,17 @@ function App() {
                             placeholder="Optional notes"
                             style={{ width: '100%', marginTop: '8px' }}
                           />
+                          <div style={{ marginTop: '8px' }}>
+                            {renderExtraControl(
+                              !!entry.afternoonHasExtra,
+                              entry.afternoonExtraType,
+                              entry.afternoonExtraNote,
+                              entry.afternoonLocation === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                              (checked) => handleExtraToggle(index, checked, 'afternoon'),
+                              (type) => handleExtraTypeChange(index, type, 'afternoon'),
+                              (note) => handleExtraNoteChange(index, note, 'afternoon'),
+                            )}
+                          </div>
                         </div>
                         <button
                           className="preset-btn"
@@ -1674,6 +1943,17 @@ function App() {
                           placeholder="Optional notes"
                           style={{ width: '100%', marginTop: '8px' }}
                         />
+                        <div style={{ marginTop: '8px' }}>
+                          {renderExtraControl(
+                            entry.hasExtra,
+                            entry.extraType,
+                            entry.extraNote,
+                            entry.location === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                            (checked) => handleExtraToggle(index, checked),
+                            (type) => handleExtraTypeChange(index, type),
+                            (note) => handleExtraNoteChange(index, note),
+                          )}
+                        </div>
                         <button
                           className="preset-btn"
                           onClick={() => toggleSplit(index)}
@@ -1698,6 +1978,7 @@ function App() {
                   <th>Location</th>
                   <th>Client</th>
                   <th>Notes</th>
+                  <th>Extra</th>
                   <th></th>
                 </tr>
               </thead>
@@ -1731,6 +2012,17 @@ function App() {
                               onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
                               placeholder="Optional notes"
                             />
+                          </td>
+                          <td>
+                            {renderExtraControl(
+                              !!entry.morningHasExtra,
+                              entry.morningExtraType,
+                              entry.morningExtraNote,
+                              entry.morningLocation === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                              (checked) => handleExtraToggle(index, checked, 'morning'),
+                              (type) => handleExtraTypeChange(index, type, 'morning'),
+                              (note) => handleExtraNoteChange(index, note, 'morning'),
+                            )}
                           </td>
                           <td rowSpan={2} style={{ verticalAlign: 'top', paddingTop: '16px' }}>
                             <button
@@ -1771,6 +2063,17 @@ function App() {
                               placeholder="Optional notes"
                             />
                           </td>
+                          <td>
+                            {renderExtraControl(
+                              !!entry.afternoonHasExtra,
+                              entry.afternoonExtraType,
+                              entry.afternoonExtraNote,
+                              entry.afternoonLocation === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                              (checked) => handleExtraToggle(index, checked, 'afternoon'),
+                              (type) => handleExtraTypeChange(index, type, 'afternoon'),
+                              (note) => handleExtraNoteChange(index, note, 'afternoon'),
+                            )}
+                          </td>
                         </tr>
                       </React.Fragment>
                     )
@@ -1799,6 +2102,17 @@ function App() {
                         onChange={(e) => handleNotesChange(index, e.target.value)}
                         placeholder="Optional notes"
                       />
+                    </td>
+                    <td>
+                      {renderExtraControl(
+                        entry.hasExtra,
+                        entry.extraType,
+                        entry.extraNote,
+                        entry.location === 'Neal Street' && (bikeCountByDate.get(entry.date) || 0) >= NEAL_STREET_BIKE_CAP,
+                        (checked) => handleExtraToggle(index, checked),
+                        (type) => handleExtraTypeChange(index, type),
+                        (note) => handleExtraNoteChange(index, note),
+                      )}
                     </td>
                       <td>
                         <button
@@ -2030,6 +2344,7 @@ function App() {
                                         {entry.user_name}
                                         {/* Show time period next to name if it's not a full day */}
                                         {entry.time_period && entry.time_period !== 'Full Day' && ` (${entry.time_period})`}
+                                        {extraBadge(entry)}
                                       </span>
                                     ))}
                                   </div>
@@ -2055,6 +2370,7 @@ function App() {
                                   {/* Show time period next to name if it's not a full day */}
                                   {entry.time_period && entry.time_period !== 'Full Day' && ` (${entry.time_period})`}
                                   {(entry.client && (baseLocation === 'Client Office' || baseLocation === 'Other')) && ` (${entry.client})`}
+                                  {extraBadge(entry)}
                                 </span>
                               ))}
                             </div>

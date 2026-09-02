@@ -367,24 +367,28 @@ def _build_day_blocks(week_start: str, day_state: dict, bike_full_dates: set | N
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
                 morning_state,
             ))
-            blocks.extend(_build_extra_field(
-                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
-                f"{offset}_morning",
-                state.get("morning_extra", {}),
-                bike_disabled=(morning_state.get("location") == "Neal Street" and date_str in bike_full_dates),
-            ))
+            # Extra info (bike/pet/etc.) only applies at Neal Street -- the
+            # block isn't rendered at all for any other location.
+            if morning_state.get("location") == "Neal Street":
+                blocks.extend(_build_extra_field(
+                    lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Morning"),
+                    f"{offset}_morning",
+                    state.get("morning_extra", {}),
+                    bike_disabled=date_str in bike_full_dates,
+                ))
             blocks.extend(_build_location_field(
                 _sub_label(week_start, offset, "Afternoon"),
                 f"{offset}_afternoon",
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
                 afternoon_state,
             ))
-            blocks.extend(_build_extra_field(
-                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
-                f"{offset}_afternoon",
-                state.get("afternoon_extra", {}),
-                bike_disabled=(afternoon_state.get("location") == "Neal Street" and date_str in bike_full_dates),
-            ))
+            if afternoon_state.get("location") == "Neal Street":
+                blocks.extend(_build_extra_field(
+                    lambda field_name, offset=offset: _sub_label(week_start, offset, field_name, half="Afternoon"),
+                    f"{offset}_afternoon",
+                    state.get("afternoon_extra", {}),
+                    bike_disabled=date_str in bike_full_dates,
+                ))
         else:
             full_state = state.get("full", {})
             blocks.extend(_build_location_field(
@@ -393,12 +397,13 @@ def _build_day_blocks(week_start: str, day_state: dict, bike_full_dates: set | N
                 lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
                 full_state,
             ))
-            blocks.extend(_build_extra_field(
-                lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
-                str(offset),
-                state.get("full_extra", {}),
-                bike_disabled=(full_state.get("location") == "Neal Street" and date_str in bike_full_dates),
-            ))
+            if full_state.get("location") == "Neal Street":
+                blocks.extend(_build_extra_field(
+                    lambda field_name, offset=offset: _sub_label(week_start, offset, field_name),
+                    str(offset),
+                    state.get("full_extra", {}),
+                    bike_disabled=date_str in bike_full_dates,
+                ))
 
     return blocks
 
@@ -551,7 +556,13 @@ def _parse_location_field(
     else:
         entry_kwargs["notes"] = text_value
 
-    extra_type = extra_state.get("extra_type") if extra_state.get("has_extra") else None
+    # Extra info only applies at Neal Street -- _build_day_blocks never renders
+    # the block for any other location, but guard here too in case a stale
+    # extra_state survives a location change within the same submission
+    # payload (rather than let it reach EntryCreate's own location check,
+    # which would raise a ValidationError misattributed to the client/
+    # description block below).
+    extra_type = extra_state.get("extra_type") if (location == "Neal Street" and extra_state.get("has_extra")) else None
     if extra_type == "Other":
         extra_note = (extra_state.get("extra_note") or "").strip() or None
         if not extra_note:

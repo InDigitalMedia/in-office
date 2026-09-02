@@ -45,6 +45,8 @@ class EntryCreate(BaseModel):
             raise ValueError("Client name is required when location is 'Client Office'")
         if self.location == "Other" and not self.client:
             raise ValueError("Location description is required when location is 'Other'")
+        if self.extra and self.location != "Neal Street":
+            raise ValueError("extra info can only be set when location is 'Neal Street'")
         if self.extra == "Other" and not self.extra_note:
             raise ValueError("extra_note is required when extra is 'Other'")
         return self

@@ -738,6 +738,12 @@ function App() {
             newEntries[index].morningClient = ''
           }
         }
+        // Extra info only applies at Neal Street -- clear it if moving away.
+        if (location !== 'Neal Street') {
+          newEntries[index].morningHasExtra = false
+          newEntries[index].morningExtraType = undefined
+          newEntries[index].morningExtraNote = ''
+        }
       } else {
         newEntries[index].afternoonLocation = location
         if (location !== 'Client Office' && location !== 'Other') {
@@ -748,6 +754,11 @@ function App() {
           if (!newEntries[index].afternoonClient) {
             newEntries[index].afternoonClient = ''
           }
+        }
+        if (location !== 'Neal Street') {
+          newEntries[index].afternoonHasExtra = false
+          newEntries[index].afternoonExtraType = undefined
+          newEntries[index].afternoonExtraNote = ''
         }
       }
     } else {
@@ -762,6 +773,11 @@ function App() {
         newEntries[index].client = ''
         }
       }
+    if (location !== 'Neal Street') {
+      newEntries[index].hasExtra = false
+      newEntries[index].extraType = undefined
+      newEntries[index].extraNote = ''
+    }
     }
     setWeekEntries(newEntries)
   }
@@ -779,23 +795,6 @@ function App() {
       }
     } else {
     newEntries[index].client = client
-    }
-    setWeekEntries(newEntries)
-  }
-
-  const handleNotesChange = (index: number, notes: string, period?: 'morning' | 'afternoon') => {
-    const newEntries = [...weekEntries]
-    const entry = newEntries[index]
-    const isSplit = splitDays.has(entry.date)
-
-    if (isSplit && period) {
-      if (period === 'morning') {
-        newEntries[index].morningNotes = notes
-      } else {
-        newEntries[index].afternoonNotes = notes
-      }
-    } else {
-    newEntries[index].notes = notes
     }
     setWeekEntries(newEntries)
   }
@@ -1406,6 +1405,7 @@ function App() {
   }
 
   const renderExtraControl = (
+    location: WorkLocation | undefined,
     hasExtra: boolean,
     extraType: ExtraType | undefined,
     extraNote: string | undefined,
@@ -1413,7 +1413,14 @@ function App() {
     onToggle: (checked: boolean) => void,
     onTypeChange: (type: ExtraType) => void,
     onNoteChange: (note: string) => void,
-  ) => (
+    variant: 'table' | 'card' = 'table',
+  ) => {
+    // Extra info (bike/pet/etc.) only makes sense when actually going into
+    // Neal Street -- other locations don't render the control at all.
+    if (location !== 'Neal Street') {
+      return variant === 'card' ? null : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>N/A</span>
+    }
+    return (
     <div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
         <input type="checkbox" checked={hasExtra} onChange={(e) => onToggle(e.target.checked)} />
@@ -1451,7 +1458,8 @@ function App() {
         </>
       )}
     </div>
-  )
+    )
+  }
 
   const handleAdminPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1869,15 +1877,9 @@ function App() {
                             (c) => handleClientChange(index, c, 'morning'),
                             'card'
                           )}
-                          <input
-                            type="text"
-                            value={entry.morningNotes || ''}
-                            onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
-                            placeholder="Optional notes"
-                            style={{ width: '100%', marginTop: '8px' }}
-                          />
                           <div style={{ marginTop: '8px' }}>
                             {renderExtraControl(
+                              entry.morningLocation,
                               !!entry.morningHasExtra,
                               entry.morningExtraType,
                               entry.morningExtraNote,
@@ -1885,6 +1887,7 @@ function App() {
                               (checked) => handleExtraToggle(index, checked, 'morning'),
                               (type) => handleExtraTypeChange(index, type, 'morning'),
                               (note) => handleExtraNoteChange(index, note, 'morning'),
+                              'card',
                             )}
                           </div>
                         </div>
@@ -1898,15 +1901,9 @@ function App() {
                             (c) => handleClientChange(index, c, 'afternoon'),
                             'card'
                           )}
-                          <input
-                            type="text"
-                            value={entry.afternoonNotes || ''}
-                            onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
-                            placeholder="Optional notes"
-                            style={{ width: '100%', marginTop: '8px' }}
-                          />
                           <div style={{ marginTop: '8px' }}>
                             {renderExtraControl(
+                              entry.afternoonLocation,
                               !!entry.afternoonHasExtra,
                               entry.afternoonExtraType,
                               entry.afternoonExtraNote,
@@ -1914,6 +1911,7 @@ function App() {
                               (checked) => handleExtraToggle(index, checked, 'afternoon'),
                               (type) => handleExtraTypeChange(index, type, 'afternoon'),
                               (note) => handleExtraNoteChange(index, note, 'afternoon'),
+                              'card',
                             )}
                           </div>
                         </div>
@@ -1936,15 +1934,9 @@ function App() {
                           (c) => handleClientChange(index, c),
                           'card'
                         )}
-                        <input
-                          type="text"
-                          value={entry.notes}
-                          onChange={(e) => handleNotesChange(index, e.target.value)}
-                          placeholder="Optional notes"
-                          style={{ width: '100%', marginTop: '8px' }}
-                        />
                         <div style={{ marginTop: '8px' }}>
                           {renderExtraControl(
+                            entry.location,
                             entry.hasExtra,
                             entry.extraType,
                             entry.extraNote,
@@ -1952,6 +1944,7 @@ function App() {
                             (checked) => handleExtraToggle(index, checked),
                             (type) => handleExtraTypeChange(index, type),
                             (note) => handleExtraNoteChange(index, note),
+                            'card',
                           )}
                         </div>
                         <button
@@ -1977,7 +1970,6 @@ function App() {
                   <th>Day</th>
                   <th>Location</th>
                   <th>Client</th>
-                  <th>Notes</th>
                   <th>Extra</th>
                   <th></th>
                 </tr>
@@ -2005,16 +1997,8 @@ function App() {
                             )}
                           </td>
                           <td>
-                            <input
-                              className="notes-input"
-                              type="text"
-                              value={entry.morningNotes || ''}
-                              onChange={(e) => handleNotesChange(index, e.target.value, 'morning')}
-                              placeholder="Optional notes"
-                            />
-                          </td>
-                          <td>
                             {renderExtraControl(
+                              entry.morningLocation,
                               !!entry.morningHasExtra,
                               entry.morningExtraType,
                               entry.morningExtraNote,
@@ -2055,16 +2039,8 @@ function App() {
                             )}
                           </td>
                           <td>
-                            <input
-                              className="notes-input"
-                              type="text"
-                              value={entry.afternoonNotes || ''}
-                              onChange={(e) => handleNotesChange(index, e.target.value, 'afternoon')}
-                              placeholder="Optional notes"
-                            />
-                          </td>
-                          <td>
                             {renderExtraControl(
+                              entry.afternoonLocation,
                               !!entry.afternoonHasExtra,
                               entry.afternoonExtraType,
                               entry.afternoonExtraNote,
@@ -2095,16 +2071,8 @@ function App() {
                       )}
                     </td>
                     <td>
-                      <input
-                        className="notes-input"
-                        type="text"
-                        value={entry.notes}
-                        onChange={(e) => handleNotesChange(index, e.target.value)}
-                        placeholder="Optional notes"
-                      />
-                    </td>
-                    <td>
                       {renderExtraControl(
+                        entry.location,
                         entry.hasExtra,
                         entry.extraType,
                         entry.extraNote,

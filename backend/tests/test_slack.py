@@ -328,6 +328,62 @@ def test_build_day_blocks_omits_any_client_field_for_non_client_locations():
         assert f"{prefix}0" not in block_ids and f"{prefix}1" not in block_ids
 
 
+def test_build_day_blocks_extra_field_only_shown_for_neal_street():
+    """The "extra info" checkbox/dropdown only makes sense at Neal Street --
+    it must not render at all for any other location, matching the web app's
+    own restriction."""
+    day_state = {
+        0: {"split": False, "full": {"location": "Neal Street", "client_choice": None, "text": None}, "full_extra": {}},
+        1: {"split": False, "full": {"location": "WFH", "client_choice": None, "text": None}, "full_extra": {"has_extra": True, "extra_type": "Bike"}},
+    }
+    blocks = slack_views._build_day_blocks("2026-07-27", day_state)
+
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]
+    assert "extra_0" in block_ids
+    assert "extra_1" not in block_ids
+    assert "extra_type_1" not in block_ids
+
+
+def test_build_day_blocks_extra_field_hidden_for_both_halves_of_split_day_when_not_neal_street():
+    day_state = {
+        0: {
+            "split": True,
+            "morning": {"location": "Neal Street", "client_choice": None, "text": None},
+            "afternoon": {"location": "WFH", "client_choice": None, "text": None},
+            "morning_extra": {},
+            "afternoon_extra": {},
+        },
+    }
+    blocks = slack_views._build_day_blocks("2026-07-27", day_state)
+
+    block_ids = [b["block_id"] for b in blocks if "block_id" in b]
+    assert "extra_0_morning" in block_ids
+    assert "extra_0_afternoon" not in block_ids
+
+
+def test_build_day_blocks_bike_option_dropped_when_neal_street_bike_cap_full():
+    day_state = {
+        0: {"split": False, "full": {"location": "Neal Street", "client_choice": None, "text": None}, "full_extra": {"has_extra": True}},
+    }
+    blocks = slack_views._build_day_blocks("2026-07-27", day_state, bike_full_dates={"2026-07-27"})
+
+    type_block = next(b for b in blocks if b["block_id"] == "extra_type_0")
+    option_values = [o["value"] for o in type_block["element"]["options"]]
+    assert "Bike" not in option_values
+    assert "Pet" in option_values and "Other" in option_values
+
+
+def test_build_day_blocks_bike_option_available_when_cap_not_full():
+    day_state = {
+        0: {"split": False, "full": {"location": "Neal Street", "client_choice": None, "text": None}, "full_extra": {"has_extra": True}},
+    }
+    blocks = slack_views._build_day_blocks("2026-07-27", day_state, bike_full_dates=set())
+
+    type_block = next(b for b in blocks if b["block_id"] == "extra_type_0")
+    option_values = [o["value"] for o in type_block["element"]["options"]]
+    assert "Bike" in option_values
+
+
 def test_build_day_blocks_split_day_shows_two_independent_location_fields():
     day_state = {
         0: {

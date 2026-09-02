@@ -4,12 +4,12 @@
 
 ### Added - Per-day "extra info" (Bike/Pet/Other)
 
-Web app and Slack `/enter-week` modal both gained an optional per-day (or per-half-day, if split) "extra info" checkbox — Bike, Pet, or Other, with a required free-text description for Other.
+Web app and Slack `/enter-week` modal both gained an optional per-day (or per-half-day, if split) "extra info" checkbox — Bike, Pet, or Other, with a required free-text description for Other. Only available when the location is Neal Street (rejected server-side for any other location) — the general-purpose "Optional notes" field was removed from the web app's Fill My Week form in favor of it.
 
 - Neal Street caps Bike bookings at 2 people per day: the 3rd person's Bike option is unavailable in both UIs (dropped from the list once reached) and rejected server-side on save (`ValueError`, not silently dropped)
 - A 🚲/🐾/📌 badge (plus description, for Other) shows next to a person's name anywhere entries are displayed (web "Who's where" dashboard, Slack digests/summaries)
 - CSV export (Admin dashboard) gained `Extra`/`Extra Note` columns
-- Migration `backend/migrations/migrate_004_add_extras.py` adds nullable `extra`/`extra_note` TEXT columns, idempotent/non-blocking like `migrate_002`
+- Migration `backend/migrations/migrate_004_add_extras.py` adds nullable `extra`/`extra_note` TEXT columns; unlike other migrations here, a failure crashes app startup rather than degrading silently, since there's no runtime fallback for the missing columns
 
 **Files Changed:** `backend/models.py`, `backend/schemas.py`, `backend/entries.py`, `backend/queries.py`, `backend/app.py`, `backend/migrations/migrate_004_add_extras.py`, `backend/slack_views.py`, `backend/slack_routes.py`, `frontend/src/types.ts`, `frontend/src/App.tsx`, `frontend/src/AdminDashboard.tsx`
 

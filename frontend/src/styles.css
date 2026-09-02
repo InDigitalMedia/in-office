@@ -728,8 +728,7 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--row-hover-bg);
 }
 
-.client-input,
-.notes-input {
+.client-input {
   width: 100%;
   padding: 8px;
   border: var(--border-input);
@@ -740,8 +739,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
 }
 
-.client-input:disabled,
-.notes-input:disabled {
+.client-input:disabled {
   background-color: var(--bg-input-disabled);
   color: var(--text-faint);
 }

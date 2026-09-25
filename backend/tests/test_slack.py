@@ -726,6 +726,56 @@ def test_build_neal_street_today_message_shows_client_office_grouped_by_client()
     assert "*FT*: @Carol" in day_text
 
 
+def test_build_neal_street_today_message_shows_not_yet_entered_section():
+    directory = {"alice johnson": {"id": "U001", "real_name": "Alice Johnson"}}
+    day_rows = [_Row("2026-07-29", "Neal Street", "Alice Johnson")]
+    message = slack_views.build_neal_street_today_message(
+        "2026-07-29", day_rows, directory, missing_names=["Bob Smith", "Alice Johnson"]
+    )
+    day_text = message["blocks"][2]["text"]["text"]
+
+    assert "Not yet entered (2)" in day_text
+    assert "⏳" in day_text
+    assert "@Bob Smith" in day_text
+    assert "<@U001>" in day_text  # matched name still gets a real mention here too
+
+
+def test_build_neal_street_today_message_omits_not_yet_entered_section_when_empty():
+    message = slack_views.build_neal_street_today_message("2026-07-29", [], missing_names=[])
+    day_text = message["blocks"][2]["text"]["text"]
+
+    assert "Not yet entered" not in day_text
+
+
+def test_build_neal_street_tomorrow_message_shows_not_yet_entered_section():
+    message = slack_views.build_neal_street_tomorrow_message("2026-07-29", [], missing_names=["Carol"])
+    day_text = message["blocks"][2]["text"]["text"]
+
+    assert "Not yet entered (1)" in day_text
+    assert "@Carol" in day_text
+
+
+def test_build_neal_street_week_message_shows_not_yet_entered_section_before_buttons():
+    message = slack_views.build_neal_street_week_message([], "2026-07-27", missing_names=["Dave", "Alice"])
+    blocks = message["blocks"]
+
+    not_entered_block = next(b for b in blocks if "Not yet entered" in b.get("text", {}).get("text", ""))
+    assert "Not yet entered (2)" in not_entered_block["text"]["text"]
+    assert "@Alice" in not_entered_block["text"]["text"] and "@Dave" in not_entered_block["text"]["text"]
+    # Sorted alphabetically, case-insensitive
+    assert not_entered_block["text"]["text"].index("@Alice") < not_entered_block["text"]["text"].index("@Dave")
+    assert blocks[-1]["type"] == "actions"
+    assert blocks[-2]["type"] == "divider"
+    assert blocks[-3] is not_entered_block
+
+
+def test_build_neal_street_week_message_omits_not_yet_entered_section_when_empty():
+    message = slack_views.build_neal_street_week_message([], "2026-07-27", missing_names=[])
+    blocks_text = json.dumps(message["blocks"])
+
+    assert "Not yet entered" not in blocks_text
+
+
 def test_build_neal_street_today_message_ends_with_full_schedule_button():
     message = slack_views.build_neal_street_today_message("2026-07-29", [])
     actions_block = message["blocks"][-1]
@@ -1317,6 +1367,7 @@ def test_tomorrow_digest_force_bypasses_gate(monkeypatch):
 def test_post_neal_street_next_week_digest_uses_next_week_header(monkeypatch):
     monkeypatch.setattr(daily_notifications, "_resolve_digest_channel", lambda directory: "C0GENERAL")
     monkeypatch.setattr(daily_notifications.slack_directory, "build_directory", lambda: {})
+    monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: ["Alice", "Bob"])
     monkeypatch.setattr(
         daily_notifications.queries,
         "get_week_entries",
@@ -1339,6 +1390,11 @@ def test_post_neal_street_next_week_digest_uses_next_week_header(monkeypatch):
     assert captured["blocks"][0]["text"]["text"] == (
         "*:wave: Good afternoon everyone! Here's who will be in the office next week :point_down:*"
     )
+    not_entered_block = next(b for b in captured["blocks"] if "Not yet entered" in b.get("text", {}).get("text", ""))
+    not_entered_text = not_entered_block["text"]["text"]
+    assert "Not yet entered (1)" in not_entered_text
+    assert "@Bob" in not_entered_text
+    assert "@Alice" not in not_entered_text  # Alice has an entry this week, so she's not "missing"
 
 
 # --- daily_notifications next-week-reminder gate ------------------------------

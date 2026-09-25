@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added - "Not yet entered" section in Slack digests
+
+The daily, tomorrow, and Friday next-week office digests now include a "⏳ *Not yet entered (N)*" section listing roster members with no entry yet for that period — today/tomorrow digests: no entry for that single day; next-week digest: no entry anywhere in the week. Sorted alphabetically, real `@mentions` when matched in the Slack directory. Omitted entirely once nobody's missing.
+
+**Files Changed:** `backend/slack_views.py` (`_format_not_entered`), `backend/daily_notifications.py` (`_missing_names`), `backend/tests/test_slack.py`
+
 ### Added - Per-day "extra info" (Bike/Pet/Other)
 
 Web app and Slack `/enter-week` modal both gained an optional per-day (or per-half-day, if split) "extra info" checkbox — Bike, Pet, or Other, with a required free-text description for Other. Only available when the location is Neal Street (rejected server-side for any other location) — the general-purpose "Optional notes" field was removed from the web app's Fill My Week form in favor of it.

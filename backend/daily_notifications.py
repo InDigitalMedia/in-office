@@ -230,8 +230,9 @@ def _post_neal_street_digest(session: Session, week_start: str, today_str: str) 
 
     week_entries = queries.get_week_entries(session, week_start)
     day_rows = [row for row in week_entries if row.date == today_str and row.location in ("Neal Street", "Client Office")]
+    missing_names = _missing_names(week_entries, {today_str})
 
-    message = slack_views.build_neal_street_today_message(today_str, day_rows, directory)
+    message = slack_views.build_neal_street_today_message(today_str, day_rows, directory, missing_names)
     slack_client.post_message(channel, message["text"], blocks=message["blocks"])
     return len({row.user_name for row in day_rows})
 
@@ -281,8 +282,9 @@ def _post_neal_street_tomorrow_digest(session: Session, week_start: str, tomorro
 
     week_entries = queries.get_week_entries(session, week_start)
     day_rows = [row for row in week_entries if row.date == tomorrow_str and row.location in ("Neal Street", "Client Office")]
+    missing_names = _missing_names(week_entries, {tomorrow_str})
 
-    message = slack_views.build_neal_street_tomorrow_message(tomorrow_str, day_rows, directory)
+    message = slack_views.build_neal_street_tomorrow_message(tomorrow_str, day_rows, directory, missing_names)
     slack_client.post_message(channel, message["text"], blocks=message["blocks"])
     return len({row.user_name for row in day_rows})
 
@@ -294,12 +296,14 @@ def _post_neal_street_next_week_digest(session: Session, next_week_start: str) -
         return 0
 
     week_entries = queries.get_week_entries(session, next_week_start)
+    missing_names = _missing_names(week_entries)
     message = slack_views.build_neal_street_week_message(
         week_entries,
         next_week_start,
         directory,
         header_text=":wave: Good afternoon everyone! Here's who will be in the office next week :point_down:",
         show_enter_week_button=True,
+        missing_names=missing_names,
     )
     slack_client.post_message(channel, message["text"], blocks=message["blocks"])
     return len({row.user_name for row in week_entries if row.location in ("Neal Street", "Client Office")})
@@ -336,6 +340,18 @@ def run_next_week_reminder(session: Session, force: bool = False) -> dict:
         "reminders_sent": reminders_sent,
         "unmatched_roster_names": unmatched,
     }
+
+
+def _missing_names(week_entries: list, entered_dates: set[str] | None = None) -> list[str]:
+    """Roster members with no entry among week_entries -- restricted to
+    entered_dates when given (the today/tomorrow digests: did they submit
+    anything, any location, for that one day), or the whole week when None
+    (the next-week digest: did they fill in their week at all, same question
+    the Friday quickfill DM asks)."""
+    roster_names = roster.get_roster()
+    relevant = week_entries if entered_dates is None else [row for row in week_entries if row.date in entered_dates]
+    entered_keys = {row.user_name.strip().lower() for row in relevant}
+    return [name for name in roster_names if name.strip().lower() not in entered_keys]
 
 
 def _send_quickfill_reminders(session: Session, week_start: str, header_text: str | None = None) -> tuple[int, list]:

@@ -705,6 +705,18 @@ def _format_entries(rows: list, directory: dict) -> str:
     return "  ".join(label(row) for row in ordered)
 
 
+def _format_not_entered(missing_names: list[str], directory: dict) -> str | None:
+    """"Not yet entered ⏳" section listing roster members with no entry yet for
+    this digest's period. Returns None (section omitted entirely) once no one's
+    missing -- matches _format_location_groups/_format_entries's "empty means
+    absent, not a section reading '_no one_'" convention, since an all-clear
+    doesn't need calling out the way an actual list does."""
+    if not missing_names:
+        return None
+    mentions = "  ".join(_mention(name, directory) for name in sorted(missing_names, key=str.lower))
+    return f"⏳ *Not yet entered ({len(missing_names)})*\n{mentions}"
+
+
 def _format_location_groups(day_rows: list, directory: dict) -> str:
     """Neal Street and Client Office, on separate lines, mirroring the tracker
     website's Who's Where grouping -- Client Office is further broken out by
@@ -740,6 +752,7 @@ def build_neal_street_week_message(
     directory: dict | None = None,
     header_text: str | None = None,
     show_enter_week_button: bool = False,
+    missing_names: list[str] | None = None,
 ) -> dict:
     """Officely-style summary: each day clearly separated, Neal Street and
     Client Office (the "who's in an office" question people actually ask),
@@ -749,7 +762,10 @@ def build_neal_street_week_message(
     used by the post-submission summary. show_enter_week_button adds a second
     button for whoever's reading to jump straight into entering week_start's
     locations themselves -- on by default for the next-week digest, off for
-    the post-submission summary (redundant right after someone just submitted)."""
+    the post-submission summary (redundant right after someone just submitted).
+    missing_names: roster members with no entry anywhere in this week -- shown
+    as one "Not yet entered" section for the whole week (not per-day) since a
+    day-by-day breakdown of absentees would be noisier than useful here."""
     directory = directory or {}
     header_text = header_text or "Here's who's in the office this week"
     by_date: dict[str, list] = {}
@@ -776,6 +792,11 @@ def build_neal_street_week_message(
             },
         })
 
+    not_entered_text = _format_not_entered(missing_names or [], directory)
+    if not_entered_text:
+        blocks.append({"type": "divider"})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": not_entered_text}})
+
     action_elements = [_see_full_schedule_button()]
     if show_enter_week_button:
         action_elements.append(_enter_my_week_button(week_start))
@@ -787,24 +808,33 @@ def build_neal_street_week_message(
 
 
 def _build_single_day_neal_street_message(
-    greeting: str, day_label: str, day_rows: list, week_start: str, directory: dict | None = None
+    greeting: str,
+    day_label: str,
+    day_rows: list,
+    week_start: str,
+    directory: dict | None = None,
+    missing_names: list[str] | None = None,
 ) -> dict:
     """Shared shape for a single-day heads-up (today's 9am digest, tomorrow's
     4pm digest): greeting, divider, a day section with Neal Street/Client
     Office broken out on separate lines (always real @mentions via the Slack
-    directory when available), divider, "See Full Schedule" + "Enter My Week"
-    buttons. week_start is the Monday of the week that day belongs to, for the
-    "Enter My Week" button to open the right week's modal."""
+    directory when available) plus, when missing_names is non-empty, a "Not
+    yet entered" line for roster members with no entry (any location) for this
+    day, divider, "See Full Schedule" + "Enter My Week" buttons. week_start is
+    the Monday of the week that day belongs to, for the "Enter My Week" button
+    to open the right week's modal."""
     directory = directory or {}
+    day_text = f"*{day_label}*\n{_format_location_groups(day_rows, directory)}"
+    not_entered_text = _format_not_entered(missing_names or [], directory)
+    if not_entered_text:
+        day_text += f"\n\n{not_entered_text}"
+
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{greeting}*"}},
         {"type": "divider"},
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{day_label}*\n{_format_location_groups(day_rows, directory)}",
-            },
+            "text": {"type": "mrkdwn", "text": day_text},
         },
         {"type": "divider"},
         {
@@ -821,7 +851,9 @@ def _week_start_of(date_obj) -> str:
     return monday.strftime("%Y-%m-%d")
 
 
-def build_neal_street_today_message(date_str: str, day_rows: list, directory: dict | None = None) -> dict:
+def build_neal_street_today_message(
+    date_str: str, day_rows: list, directory: dict | None = None, missing_names: list[str] | None = None
+) -> dict:
     """Same visual style as build_neal_street_week_message (bold header, divider,
     day section, real @mentions, "See Full Schedule" + "Enter My Week" buttons)
     but for the single-day 9am same-day digest."""
@@ -829,14 +861,20 @@ def build_neal_street_today_message(date_str: str, day_rows: list, directory: di
     weekday_name = WEEKDAY_NAMES[date_obj.weekday()][:3]
     day_header = f"{weekday_name} {_ordinal_day(date_obj.day)}"
     greeting = ":coffee: Good morning everyone! Here's who will be in the office today :point_down:"
-    return _build_single_day_neal_street_message(greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory)
+    return _build_single_day_neal_street_message(
+        greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory, missing_names
+    )
 
 
-def build_neal_street_tomorrow_message(date_str: str, day_rows: list, directory: dict | None = None) -> dict:
+def build_neal_street_tomorrow_message(
+    date_str: str, day_rows: list, directory: dict | None = None, missing_names: list[str] | None = None
+) -> dict:
     """Same visual style as build_neal_street_week_message but for the single-day
     4pm heads-up."""
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     weekday_name = WEEKDAY_NAMES[date_obj.weekday()][:3]
     day_header = f"{weekday_name} {_ordinal_day(date_obj.day)}"
     greeting = ":wave: Good afternoon everyone! Here's who will be in the office tomorrow :point_down:"
-    return _build_single_day_neal_street_message(greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory)
+    return _build_single_day_neal_street_message(
+        greeting, day_header, day_rows, _week_start_of(date_obj.date()), directory, missing_names
+    )

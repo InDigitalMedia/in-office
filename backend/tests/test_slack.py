@@ -672,7 +672,7 @@ def test_build_neal_street_tomorrow_message_has_enter_my_week_button_for_its_own
     message = slack_views.build_neal_street_tomorrow_message("2026-07-29", [])
     actions_block = message["blocks"][-1]
 
-    enter_week_button = actions_block["elements"][1]
+    enter_week_button = actions_block["elements"][0]
     assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
@@ -791,7 +791,7 @@ def test_build_neal_street_today_message_has_enter_my_week_button_for_its_own_we
     message = slack_views.build_neal_street_today_message("2026-07-29", [])
     actions_block = message["blocks"][-1]
 
-    enter_week_button = actions_block["elements"][1]
+    enter_week_button = actions_block["elements"][0]
     assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
@@ -802,8 +802,8 @@ def test_single_day_digests_offer_same_as_last_week_for_their_own_week():
     for build in (slack_views.build_neal_street_today_message, slack_views.build_neal_street_tomorrow_message):
         elements = build("2026-07-29", [])["blocks"][-1]["elements"]
         assert [e["action_id"] for e in elements] == [
-            slack_views.ACTION_SAME_AS_LAST_WEEK,
             slack_views.ACTION_FILL_WEEK,
+            slack_views.ACTION_SAME_AS_LAST_WEEK,
             slack_views.ACTION_VIEW_FULL_SCHEDULE,
         ]
         assert elements[0]["value"] == "2026-07-27"
@@ -1457,8 +1457,8 @@ def test_build_next_week_nudge_message_leads_with_quickfill_buttons():
     actions = message["blocks"][-1]
     assert actions["type"] == "actions"
     assert [e["action_id"] for e in actions["elements"]] == [
-        slack_views.ACTION_SAME_AS_LAST_WEEK,
         slack_views.ACTION_FILL_WEEK,
+        slack_views.ACTION_SAME_AS_LAST_WEEK,
         slack_views.ACTION_VIEW_FULL_SCHEDULE,
     ]
     assert actions["elements"][0]["value"] == "2026-08-03"

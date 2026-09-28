@@ -111,13 +111,13 @@ def build_quickfill_message(week_start: str, header_text: str | None = None, men
         {
             "type": "actions",
             "elements": [
-                _same_as_last_week_button(week_start),
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✏️ Fill in week", "emoji": True},
                     "action_id": ACTION_FILL_WEEK,
                     "value": week_start,
                 },
+                _same_as_last_week_button(week_start),
             ],
         },
     ]
@@ -820,8 +820,8 @@ def build_next_week_nudge_message(
     by everyone who hasn't entered anything for it yet (real @mentions). This
     replaced posting next week's office schedule -- by Friday afternoon few
     people had filled in, so the schedule was near-empty; calling out who's
-    still missing is what actually drives uptake. "Same as last week" and
-    "Fill My Week" come first since filling in is the action being asked for --
+    still missing is what actually drives uptake. "Fill My Week" and
+    "Same as last week" come first since filling in is the action being asked for --
     both reuse the quick-fill DM's handlers, which act on whoever clicks."""
     directory = directory or {}
     header_text = ":wave: Happy Friday everyone! Don't forget to fill in where you'll be next week :calendar:"
@@ -837,8 +837,8 @@ def build_next_week_nudge_message(
         {
             "type": "actions",
             "elements": [
-                _same_as_last_week_button(week_start),
                 _enter_my_week_button(week_start),
+                _same_as_last_week_button(week_start),
                 _see_full_schedule_button(),
             ],
         },
@@ -860,7 +860,7 @@ def _build_single_day_neal_street_message(
     Office broken out on separate lines (always real @mentions via the Slack
     directory when available) plus, when missing_names is non-empty, a "Not
     yet entered" line for roster members with no entry (any location) for this
-    day, divider, "Same as last week" + "Fill My Week" + "See Full Schedule"
+    day, divider, "Fill My Week" + "Same as last week" + "See Full Schedule"
     buttons (same order as the Friday next-week nudge). week_start is the
     Monday of the week that day belongs to, so both fill buttons open the
     right week's modal."""
@@ -881,8 +881,8 @@ def _build_single_day_neal_street_message(
         {
             "type": "actions",
             "elements": [
-                _same_as_last_week_button(week_start),
                 _enter_my_week_button(week_start),
+                _same_as_last_week_button(week_start),
                 _see_full_schedule_button(),
             ],
         },

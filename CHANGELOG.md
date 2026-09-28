@@ -4,9 +4,9 @@
 
 ### Changed - Friday 4pm Slack post is now a "fill in next week" nudge
 
-The Friday general-channel post no longer lists next week's office schedule (few people had filled in by then, so it was near-empty). It now reads "*:wave: Happy Friday everyone! Don't forget to fill in where you'll be next week :calendar:*" followed by the "⏳ *Not yet entered (N)*" @mention list, or an all-clear if everyone's filled in. Buttons are "🔁 Same as last week" + "✏️ Fill My Week" (same handlers as the quick-fill DM, acting on whoever clicks) then "📅 See Full Schedule". Aim: get more people filling in next week on Friday.
+The Friday general-channel post no longer lists next week's office schedule (few people had filled in by then, so it was near-empty). It now reads "*:wave: Happy Friday everyone! Don't forget to fill in where you'll be next week :calendar:*" followed by the "⏳ *Not yet entered (N)*" @mention list, or an all-clear if everyone's filled in. Buttons are "✏️ Fill My Week" + "🔁 Same as last week" (same handlers as the quick-fill DM, acting on whoever clicks) then "📅 See Full Schedule". Aim: get more people filling in next week on Friday.
 
-The 9am today and Mon–Thu 4pm tomorrow digests also gained "🔁 Same as last week", with buttons in the same order (Same as last week, Fill My Week, See Full Schedule) across all channel posts.
+The 9am today and Mon–Thu 4pm tomorrow digests also gained "🔁 Same as last week", with buttons in the same order (Fill My Week, Same as last week, See Full Schedule) across all channel posts. The quick-fill DM reminders now also show "Fill in week" before "Same as last week".
 
 "Same as last week" with nothing to copy now replies ephemerally (only the clicker sees it) when clicked from a channel post, instead of replacing the original message for everyone; DM behaviour unchanged.
 

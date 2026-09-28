@@ -111,12 +111,7 @@ def build_quickfill_message(week_start: str, header_text: str | None = None, men
         {
             "type": "actions",
             "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "🔁 Same as last week", "emoji": True},
-                    "action_id": ACTION_SAME_AS_LAST_WEEK,
-                    "value": week_start,
-                },
+                _same_as_last_week_button(week_start),
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✏️ Fill in week", "emoji": True},
@@ -658,6 +653,17 @@ def _enter_my_week_button(week_start: str) -> dict:
     }
 
 
+def _same_as_last_week_button(week_start: str) -> dict:
+    """Same button (and ACTION_SAME_AS_LAST_WEEK handler) as the quick-fill
+    DM's -- opens the week modal pre-filled from the clicker's previous week."""
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "🔁 Same as last week", "emoji": True},
+        "action_id": ACTION_SAME_AS_LAST_WEEK,
+        "value": week_start,
+    }
+
+
 def _mention(name: str, directory: dict) -> str:
     """A real Slack mention (<@ID>, renders as a clickable @name pill) if this
     person's normalized name matches the Slack directory, else their plain
@@ -807,6 +813,40 @@ def build_neal_street_week_message(
     return {"text": header_text, "blocks": blocks}
 
 
+def build_next_week_nudge_message(
+    week_start: str, missing_names: list[str], directory: dict | None = None
+) -> dict:
+    """Friday 4pm general-channel post: a nudge to fill in next week, followed
+    by everyone who hasn't entered anything for it yet (real @mentions). This
+    replaced posting next week's office schedule -- by Friday afternoon few
+    people had filled in, so the schedule was near-empty; calling out who's
+    still missing is what actually drives uptake. "Same as last week" and
+    "Fill My Week" come first since filling in is the action being asked for --
+    both reuse the quick-fill DM's handlers, which act on whoever clicks."""
+    directory = directory or {}
+    header_text = ":wave: Happy Friday everyone! Don't forget to fill in where you'll be next week :calendar:"
+
+    not_entered_text = _format_not_entered(missing_names, directory)
+    body_text = not_entered_text or "🎉 *Everyone's filled in next week — thank you!*"
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{header_text}*"}},
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
+        {"type": "divider"},
+        {
+            "type": "actions",
+            "elements": [
+                _same_as_last_week_button(week_start),
+                _enter_my_week_button(week_start),
+                _see_full_schedule_button(),
+            ],
+        },
+    ]
+
+    return {"text": header_text, "blocks": blocks}
+
+
 def _build_single_day_neal_street_message(
     greeting: str,
     day_label: str,
@@ -820,9 +860,10 @@ def _build_single_day_neal_street_message(
     Office broken out on separate lines (always real @mentions via the Slack
     directory when available) plus, when missing_names is non-empty, a "Not
     yet entered" line for roster members with no entry (any location) for this
-    day, divider, "See Full Schedule" + "Enter My Week" buttons. week_start is
-    the Monday of the week that day belongs to, for the "Enter My Week" button
-    to open the right week's modal."""
+    day, divider, "Same as last week" + "Fill My Week" + "See Full Schedule"
+    buttons (same order as the Friday next-week nudge). week_start is the
+    Monday of the week that day belongs to, so both fill buttons open the
+    right week's modal."""
     directory = directory or {}
     day_text = f"*{day_label}*\n{_format_location_groups(day_rows, directory)}"
     not_entered_text = _format_not_entered(missing_names or [], directory)
@@ -839,7 +880,11 @@ def _build_single_day_neal_street_message(
         {"type": "divider"},
         {
             "type": "actions",
-            "elements": [_see_full_schedule_button(), _enter_my_week_button(week_start)],
+            "elements": [
+                _same_as_last_week_button(week_start),
+                _enter_my_week_button(week_start),
+                _see_full_schedule_button(),
+            ],
         },
     ]
 

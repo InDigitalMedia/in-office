@@ -240,9 +240,9 @@ def _post_neal_street_digest(session: Session, week_start: str, today_str: str) 
 def run_tomorrow_digest(session: Session, force: bool = False) -> dict:
     """Posts to the Neal Street channel around 4pm London time. On Mon-Thu this
     announces who's in tomorrow; on Friday, "tomorrow" would be Saturday (not
-    useful), so it instead posts the whole of next week's schedule -- one
-    action, branching on which day it's run, rather than a separate Friday-only
-    job. force=True bypasses the weekday/hour/already-sent gates below for
+    useful), so it instead nudges everyone to fill in next week, listing who
+    hasn't yet -- one action, branching on which day it's run, rather than a
+    separate Friday-only job. force=True bypasses the weekday/hour/already-sent gates below for
     manual test runs (see trigger_tomorrow_digest in slack_routes.py) -- the
     scheduled GitHub Actions cron never sets it."""
     now = datetime.now(LONDON_TZ)
@@ -259,10 +259,10 @@ def run_tomorrow_digest(session: Session, force: bool = False) -> dict:
 
     if now.weekday() == 4:
         next_week_start = monday_of(now.date() + timedelta(days=7))
-        neal_street_count = _post_neal_street_next_week_digest(session, next_week_start)
+        not_entered_count = _post_neal_street_next_week_digest(session, next_week_start)
         if not force:
             _mark_ran_today(session, "tomorrow_digest", today_str)
-        return {"ok": True, "neal_street_count": neal_street_count, "period": "next_week"}
+        return {"ok": True, "not_entered_count": not_entered_count, "period": "next_week"}
 
     tomorrow = now.date() + timedelta(days=1)
     tomorrow_str = tomorrow.strftime("%Y-%m-%d")
@@ -297,16 +297,9 @@ def _post_neal_street_next_week_digest(session: Session, next_week_start: str) -
 
     week_entries = queries.get_week_entries(session, next_week_start)
     missing_names = _missing_names(week_entries)
-    message = slack_views.build_neal_street_week_message(
-        week_entries,
-        next_week_start,
-        directory,
-        header_text=":wave: Good afternoon everyone! Here's who will be in the office next week :point_down:",
-        show_enter_week_button=True,
-        missing_names=missing_names,
-    )
+    message = slack_views.build_next_week_nudge_message(next_week_start, missing_names, directory)
     slack_client.post_message(channel, message["text"], blocks=message["blocks"])
-    return len({row.user_name for row in week_entries if row.location in ("Neal Street", "Client Office")})
+    return len(missing_names)
 
 
 def run_next_week_reminder(session: Session, force: bool = False) -> dict:

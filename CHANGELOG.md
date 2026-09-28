@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed - Friday 4pm Slack post is now a "fill in next week" nudge
+
+The Friday general-channel post no longer lists next week's office schedule (few people had filled in by then, so it was near-empty). It now reads "*:wave: Happy Friday everyone! Don't forget to fill in where you'll be next week :calendar:*" followed by the "⏳ *Not yet entered (N)*" @mention list, or an all-clear if everyone's filled in. Buttons are "🔁 Same as last week" + "✏️ Fill My Week" (same handlers as the quick-fill DM, acting on whoever clicks) then "📅 See Full Schedule". Aim: get more people filling in next week on Friday.
+
+The 9am today and Mon–Thu 4pm tomorrow digests also gained "🔁 Same as last week", with buttons in the same order (Same as last week, Fill My Week, See Full Schedule) across all channel posts.
+
+"Same as last week" with nothing to copy now replies ephemerally (only the clicker sees it) when clicked from a channel post, instead of replacing the original message for everyone; DM behaviour unchanged.
+
+**Files Changed:** `backend/slack_views.py` (`build_next_week_nudge_message`, `_same_as_last_week_button`), `backend/daily_notifications.py`, `backend/slack_routes.py`, `backend/slack_client.py`, `backend/tests/test_slack.py`, `docs/SLACK_INTEGRATION.md`
+
 ### Added - "Not yet entered" section in Slack digests
 
 The daily, tomorrow, and Friday next-week office digests now include a "⏳ *Not yet entered (N)*" section listing roster members with no entry yet for that period — today/tomorrow digests: no entry for that single day; next-week digest: no entry anywhere in the week. Sorted alphabetically, real `@mentions` when matched in the Slack directory. Omitted entirely once nobody's missing.

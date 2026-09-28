@@ -662,7 +662,7 @@ def test_build_neal_street_tomorrow_message_ends_with_full_schedule_button():
     actions_block = message["blocks"][-1]
 
     assert actions_block["type"] == "actions"
-    button = actions_block["elements"][0]
+    button = actions_block["elements"][-1]
     assert button["text"]["text"] == "📅 See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
 
@@ -781,7 +781,7 @@ def test_build_neal_street_today_message_ends_with_full_schedule_button():
     actions_block = message["blocks"][-1]
 
     assert actions_block["type"] == "actions"
-    button = actions_block["elements"][0]
+    button = actions_block["elements"][-1]
     assert button["text"]["text"] == "📅 See Full Schedule"
     assert button["url"] == slack_views.TRACKER_URL
 
@@ -795,6 +795,18 @@ def test_build_neal_street_today_message_has_enter_my_week_button_for_its_own_we
     assert enter_week_button["text"]["text"] == "✏️ Fill My Week"
     assert enter_week_button["action_id"] == slack_views.ACTION_FILL_WEEK
     assert enter_week_button["value"] == "2026-07-27"
+
+
+def test_single_day_digests_offer_same_as_last_week_for_their_own_week():
+    # 2026-07-29 is a Wednesday -- its week starts Monday 2026-07-27
+    for build in (slack_views.build_neal_street_today_message, slack_views.build_neal_street_tomorrow_message):
+        elements = build("2026-07-29", [])["blocks"][-1]["elements"]
+        assert [e["action_id"] for e in elements] == [
+            slack_views.ACTION_SAME_AS_LAST_WEEK,
+            slack_views.ACTION_FILL_WEEK,
+            slack_views.ACTION_VIEW_FULL_SCHEDULE,
+        ]
+        assert elements[0]["value"] == "2026-07-27"
 
 
 # --- slack_routes._handle_location_change (live modal update) ----------------
@@ -973,6 +985,49 @@ def test_same_as_last_week_with_no_full_day_entries_responds_without_opening_mod
     actions_block = next(b for b in responded["blocks"] if b["type"] == "actions")
     fill_button = next(e for e in actions_block["elements"] if e["action_id"] == slack_views.ACTION_FILL_WEEK)
     assert fill_button["value"] == "2026-07-27"
+
+
+def _run_same_as_last_week_with_no_entries(monkeypatch, channel_id):
+    monkeypatch.setattr(slack_routes, "_resolve_identity", lambda user_id: ("Alice Johnson", True))
+    monkeypatch.setattr(
+        slack_routes.queries, "get_last_week_entries_for_user", lambda session, user_key, week_start: {}
+    )
+    monkeypatch.setattr(slack_client, "open_view", lambda trigger_id, view: None)
+    responded = {}
+    monkeypatch.setattr(
+        slack_client,
+        "respond_via_response_url",
+        lambda url, text, **kw: responded.update(ephemeral=kw.get("ephemeral", False)),
+    )
+    payload = {
+        "actions": [{"action_id": slack_views.ACTION_SAME_AS_LAST_WEEK, "value": "2026-07-27"}],
+        "user": {"id": "U1"},
+        "channel": {"id": channel_id},
+        "trigger_id": "T123",
+        "response_url": "https://hooks.slack.com/fake",
+    }
+    slack_routes._handle_block_action(session=None, payload=payload)
+    return responded
+
+
+def test_same_as_last_week_no_entries_from_channel_post_replies_privately(monkeypatch):
+    """Clicked on the shared Friday channel nudge: replacing the original
+    would wipe that post for everyone, so the reply must be ephemeral."""
+    responded = _run_same_as_last_week_with_no_entries(monkeypatch, "C0GENERAL")
+    assert responded["ephemeral"] is True
+
+
+def test_same_as_last_week_no_entries_from_dm_still_replaces_original(monkeypatch):
+    responded = _run_same_as_last_week_with_no_entries(monkeypatch, "D0DM")
+    assert responded["ephemeral"] is False
+
+
+def test_respond_via_response_url_ephemeral_does_not_replace_original(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(slack_client.httpx, "post", lambda url, json, timeout: sent.update(json))
+    slack_client.respond_via_response_url("https://hooks.slack.com/fake", "hi", ephemeral=True)
+    assert sent["response_type"] == "ephemeral"
+    assert sent["replace_original"] is False
 
 
 def test_handle_block_action_url_button_does_not_crash():
@@ -1364,7 +1419,7 @@ def test_tomorrow_digest_force_bypasses_gate(monkeypatch):
     assert result["ok"] is True
 
 
-def test_post_neal_street_next_week_digest_uses_next_week_header(monkeypatch):
+def test_post_neal_street_next_week_digest_nudges_and_lists_who_has_not_entered(monkeypatch):
     monkeypatch.setattr(daily_notifications, "_resolve_digest_channel", lambda directory: "C0GENERAL")
     monkeypatch.setattr(daily_notifications.slack_directory, "build_directory", lambda: {})
     monkeypatch.setattr(daily_notifications.roster, "get_roster", lambda: ["Alice", "Bob"])
@@ -1385,16 +1440,36 @@ def test_post_neal_street_next_week_digest_uses_next_week_header(monkeypatch):
 
     count = daily_notifications._post_neal_street_next_week_digest(session=None, next_week_start="2026-08-03")
 
-    assert count == 1
+    assert count == 1  # one person (Bob) still to enter
     assert captured["channel"] == "C0GENERAL"
-    assert captured["blocks"][0]["text"]["text"] == (
-        "*:wave: Good afternoon everyone! Here's who will be in the office next week :point_down:*"
-    )
+    assert "Don't forget to fill in where you'll be next week" in captured["blocks"][0]["text"]["text"]
+    # The office schedule itself is no longer posted -- just the nudge + who's missing
+    assert not any("Neal Street" in b.get("text", {}).get("text", "") for b in captured["blocks"])
     not_entered_block = next(b for b in captured["blocks"] if "Not yet entered" in b.get("text", {}).get("text", ""))
     not_entered_text = not_entered_block["text"]["text"]
     assert "Not yet entered (1)" in not_entered_text
     assert "@Bob" in not_entered_text
     assert "@Alice" not in not_entered_text  # Alice has an entry this week, so she's not "missing"
+
+
+def test_build_next_week_nudge_message_leads_with_quickfill_buttons():
+    message = slack_views.build_next_week_nudge_message("2026-08-03", ["Bob"])
+    actions = message["blocks"][-1]
+    assert actions["type"] == "actions"
+    assert [e["action_id"] for e in actions["elements"]] == [
+        slack_views.ACTION_SAME_AS_LAST_WEEK,
+        slack_views.ACTION_FILL_WEEK,
+        slack_views.ACTION_VIEW_FULL_SCHEDULE,
+    ]
+    assert actions["elements"][0]["value"] == "2026-08-03"
+    assert actions["elements"][1]["value"] == "2026-08-03"
+
+
+def test_build_next_week_nudge_message_all_clear_when_no_one_missing():
+    message = slack_views.build_next_week_nudge_message("2026-08-03", [])
+    texts = [b.get("text", {}).get("text", "") for b in message["blocks"]]
+    assert not any("Not yet entered" in t for t in texts)
+    assert any("Everyone's filled in next week" in t for t in texts)
 
 
 # --- daily_notifications next-week-reminder gate ------------------------------

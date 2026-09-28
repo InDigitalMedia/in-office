@@ -131,9 +131,17 @@ def users_list() -> list[dict]:
     return members
 
 
-def respond_via_response_url(response_url: str, text: str, blocks: list | None = None, replace_original: bool = True) -> None:
-    """Update the original interactive message in place via Slack's response_url."""
-    payload = {"text": text, "replace_original": replace_original}
+def respond_via_response_url(
+    response_url: str, text: str, blocks: list | None = None, replace_original: bool = True, ephemeral: bool = False
+) -> None:
+    """Update the original interactive message in place via Slack's response_url.
+    ephemeral=True instead posts a new reply only the clicking user can see,
+    leaving the original untouched -- needed when the original is a shared
+    channel post, where replacing it would change it for everyone."""
+    if ephemeral:
+        payload = {"text": text, "response_type": "ephemeral", "replace_original": False}
+    else:
+        payload = {"text": text, "replace_original": replace_original}
     if blocks is not None:
         payload["blocks"] = blocks
     try:

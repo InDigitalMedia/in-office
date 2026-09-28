@@ -276,7 +276,11 @@ def _handle_block_action(session: Session, payload: dict) -> Response:
                         ],
                     },
                 ]
-                slack_client.respond_via_response_url(response_url, text, blocks=blocks)
+                # Clicked from a shared channel post (e.g. the Friday next-week
+                # nudge) rather than a DM: replacing the original would wipe it
+                # for everyone, so reply privately to just this user instead.
+                in_dm = payload.get("channel", {}).get("id", "").startswith("D")
+                slack_client.respond_via_response_url(response_url, text, blocks=blocks, ephemeral=not in_dm)
             return Response(status_code=200)
 
         bike_full_dates = queries.get_full_bike_dates(session, week_start, user_key)

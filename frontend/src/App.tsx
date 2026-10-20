@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { WeekEntry, WorkLocation, SummaryRow, Entry, ExistingEntry, ExtraType } from './types'
 import { saveWeek, getWeekSummary, checkExistingEntries, getUserEntriesForWeek, getUsersForWeek, getAllUsers, deleteUserWeek, verifyAdminTabPassword } from './api'
 import AdminDashboard from './AdminDashboard'
+import AdminUserHistory from './AdminUserHistory'
 // Load team and client lists from public at runtime (no imports from root)
 
 type ViewMode = 'fill' | 'dashboard' | 'edit' | 'admin'
@@ -345,6 +346,9 @@ function ClientSearchInput({
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('fill')
   const [adminUnlocked, setAdminUnlocked] = useState(false)
+  // Kept in memory only (re-locks on reload) so admin-only API calls can send it
+  const [adminPassword, setAdminPassword] = useState('')
+  const [adminDataVersion, setAdminDataVersion] = useState(0)
   const [adminPasswordInput, setAdminPasswordInput] = useState('')
   const [showAdminPassword, setShowAdminPassword] = useState(false)
   const [adminError, setAdminError] = useState('')
@@ -1469,6 +1473,7 @@ function App() {
     setAdminChecking(false)
     if (ok) {
       setAdminUnlocked(true)
+      setAdminPassword(adminPasswordInput)
       setAdminPasswordInput('')
     } else {
       setAdminError('Incorrect password')
@@ -2387,7 +2392,13 @@ function App() {
       {viewMode === 'admin' && (
         <div className="dashboard">
           {adminUnlocked ? (
-            <AdminDashboard teamMembers={allUsers} />
+            <>
+              <AdminDashboard teamMembers={allUsers} refreshKey={adminDataVersion} />
+              <AdminUserHistory
+                adminPassword={adminPassword}
+                onChange={() => setAdminDataVersion((v) => v + 1)}
+              />
+            </>
           ) : (
             <form onSubmit={handleAdminPasswordSubmit} style={{ maxWidth: 320 }}>
               <h2>Admin</h2>

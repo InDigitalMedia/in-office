@@ -88,3 +88,18 @@ export interface AdminEntry {
   created_at: string
   updated_at?: string | null
 }
+
+// An entry as returned by the Admin tab's "delete user history" call, kept
+// client-side so the delete can be undone.
+export interface DeletedEntry {
+  user_name: string
+  date: string
+  location: string
+  time_period?: string | null
+  client?: string | null
+  notes?: string | null
+  extra?: ExtraType | null
+  extra_note?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}

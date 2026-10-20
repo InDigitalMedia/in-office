@@ -2,6 +2,7 @@ import {
   AdminEntry,
   BulkUpsertRequest,
   BulkUpsertResponse,
+  DeletedEntry,
   ExistingEntry,
   WeekSummaryResponse,
 } from './types'
@@ -19,11 +20,11 @@ async function apiCall<T>(
   options: FetchOptions = {}
 ): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
     },
-    ...options,
   })
 
   if (!response.ok) {
@@ -107,4 +108,25 @@ export async function verifyAdminTabPassword(password: string): Promise<boolean>
   } catch {
     return false
   }
+}
+
+export async function deleteUserHistory(
+  userName: string,
+  adminPassword: string
+): Promise<{ ok: boolean; deleted: number; entries: DeletedEntry[] }> {
+  return apiCall(`/admin/users/${encodeURIComponent(userName)}`, {
+    method: 'DELETE',
+    headers: { 'X-Admin-Tab-Password': adminPassword },
+  })
+}
+
+export async function restoreUserHistory(
+  entries: DeletedEntry[],
+  adminPassword: string
+): Promise<{ ok: boolean; restored: number; skipped: number }> {
+  return apiCall('/admin/users/restore', {
+    method: 'POST',
+    headers: { 'X-Admin-Tab-Password': adminPassword },
+    body: JSON.stringify({ entries }),
+  })
 }

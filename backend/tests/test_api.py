@@ -192,6 +192,72 @@ def test_admin_tab_password_not_configured(client, monkeypatch):
     assert response.status_code == 503
 
 
+ADMIN_TAB_HEADERS = {"X-Admin-Tab-Password": "test-tab-password"}
+
+
+def test_admin_delete_user_history_and_undo(client):
+    """Deleting a user's history removes all their weeks; restore brings them back."""
+    for user in ("Delete Me", "Keep Me"):
+        client.post("/entries/bulk_upsert", json={
+            "user_name": user,
+            "entries": [
+                {"date": "2025-01-06", "location": "WFH"},
+                {"date": "2025-01-13", "location": "Neal Street"},
+            ],
+        })
+
+    response = client.delete("/admin/users/Delete Me", headers=ADMIN_TAB_HEADERS)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["deleted"] == 2
+    assert {e["user_name"] for e in client.get("/entries").json()} == {"Keep Me"}
+
+    # Already gone
+    assert client.delete("/admin/users/Delete Me", headers=ADMIN_TAB_HEADERS).status_code == 404
+
+    response = client.post("/admin/users/restore", json={"entries": data["entries"]}, headers=ADMIN_TAB_HEADERS)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "restored": 2, "skipped": 0}
+    restored = [e for e in client.get("/entries").json() if e["user_name"] == "Delete Me"]
+    assert sorted((e["date"], e["location"]) for e in restored) == [
+        ("2025-01-06", "WFH"),
+        ("2025-01-13", "Neal Street"),
+    ]
+
+
+def test_admin_restore_skips_days_re_entered_since_delete(client):
+    client.post("/entries/bulk_upsert", json={
+        "user_name": "Alice",
+        "entries": [
+            {"date": "2025-01-06", "location": "WFH"},
+            {"date": "2025-01-07", "location": "WFH"},
+        ],
+    })
+    backup = client.delete("/admin/users/Alice", headers=ADMIN_TAB_HEADERS).json()["entries"]
+
+    # Alice re-enters one of the days before the undo
+    client.post("/entries/bulk_upsert", json={
+        "user_name": "Alice",
+        "entries": [{"date": "2025-01-06", "location": "Neal Street"}],
+    })
+
+    response = client.post("/admin/users/restore", json={"entries": backup}, headers=ADMIN_TAB_HEADERS)
+    assert response.json() == {"ok": True, "restored": 1, "skipped": 1}
+    by_date = {e["date"]: e["location"] for e in client.get("/entries").json()}
+    assert by_date == {"2025-01-06": "Neal Street", "2025-01-07": "WFH"}
+
+
+def test_admin_user_history_routes_require_tab_password(client):
+    client.post("/entries/bulk_upsert", json={
+        "user_name": "Bob",
+        "entries": [{"date": "2025-01-06", "location": "WFH"}],
+    })
+    assert client.delete("/admin/users/Bob").status_code == 401
+    assert client.delete("/admin/users/Bob", headers={"X-Admin-Tab-Password": "wrong"}).status_code == 401
+    assert client.post("/admin/users/restore", json={"entries": []}).status_code == 401
+    assert len(client.get("/entries").json()) == 1
+
+
 def test_vercel_preview_cors_regex_matches_current_project_name():
     """Regression test: this regex hardcodes the Vercel PROJECT name
     (vercel.com/in-digital/in-office), which is independent of the GitHub

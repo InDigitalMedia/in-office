@@ -17,6 +17,7 @@ from schemas import (
     BulkUpsertRequest,
     BulkUpsertResponse,
     EntryResponse,
+    RestoreEntriesRequest,
     SummaryRow,
     WeekSummaryResponse,
 )
@@ -134,6 +135,113 @@ def verify_admin_tab_password(request: AdminTabPasswordRequest):
     if not hmac.compare_digest(request.password, ADMIN_TAB_PASSWORD):
         raise HTTPException(status_code=401, detail="Incorrect password")
     return {"ok": True}
+
+
+def require_admin_tab(x_admin_tab_password: str | None = Header(default=None)):
+    """Gate routes the Admin tab calls behind the same password that unlocks the tab."""
+    if not ADMIN_TAB_PASSWORD:
+        raise HTTPException(status_code=503, detail="Admin tab password is not configured")
+    if not x_admin_tab_password or not hmac.compare_digest(x_admin_tab_password, ADMIN_TAB_PASSWORD):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+
+@app.delete("/admin/users/{user_name}", dependencies=[Depends(require_admin_tab)])
+def delete_user_history(user_name: str, session: Session = Depends(get_session)):
+    """Delete every entry a user has saved, across all weeks.
+
+    Returns the deleted entries so the Admin tab can undo via /admin/users/restore.
+    """
+    user_key = user_name.strip().lower()
+    logger.info(f"Delete all history request for user_key: {user_key}")
+
+    try:
+        entries = session.exec(
+            select(Entry).where(Entry.user_key == user_key).order_by(Entry.date)
+        ).all()
+
+        if not entries:
+            raise HTTPException(status_code=404, detail="No entries found for this user")
+
+        backup = [
+            {
+                "user_name": e.user_name,
+                "date": e.date,
+                "location": e.location,
+                "time_period": normalize_time_period(e.time_period),
+                "client": e.client,
+                "notes": e.notes,
+                "extra": e.extra,
+                "extra_note": e.extra_note,
+                "created_at": e.created_at,
+                "updated_at": e.updated_at,
+            }
+            for e in entries
+        ]
+
+        for entry in entries:
+            session.delete(entry)
+        session.commit()
+
+        logger.info(f"Deleted {len(entries)} entries for user_key {user_key}")
+        return {"ok": True, "deleted": len(entries), "entries": backup}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error deleting user history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/admin/users/restore", dependencies=[Depends(require_admin_tab)])
+def restore_user_history(request: RestoreEntriesRequest, session: Session = Depends(get_session)):
+    """Undo for DELETE /admin/users/{user_name}: re-insert the entries it returned.
+
+    A day the user has re-entered since the delete keeps the newer entry; the
+    restored copy is skipped rather than overwriting it.
+    """
+    logger.info(f"Restore request for {len(request.entries)} entries")
+
+    try:
+        restored = 0
+        skipped = 0
+        for e in request.entries:
+            user_key = e.user_name.strip().lower()
+            time_period = e.time_period or ""
+            clash = session.exec(
+                select(Entry).where(
+                    Entry.user_key == user_key,
+                    Entry.date == e.date,
+                    Entry.time_period == time_period,
+                )
+            ).first()
+            if clash:
+                skipped += 1
+                continue
+
+            session.add(Entry(
+                user_key=user_key,
+                user_name=e.user_name,
+                date=e.date,
+                location=e.location,
+                time_period=time_period,
+                client=e.client,
+                notes=e.notes,
+                extra=e.extra,
+                extra_note=e.extra_note,
+                created_at=e.created_at or datetime.now(UTC),
+                updated_at=e.updated_at,
+            ))
+            restored += 1
+
+        session.commit()
+        logger.info(f"Restored {restored} entries, skipped {skipped}")
+        return {"ok": True, "restored": restored, "skipped": skipped}
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error restoring user history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/entries/bulk_upsert", response_model=BulkUpsertResponse)

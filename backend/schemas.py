@@ -81,6 +81,23 @@ class AdminTabPasswordRequest(BaseModel):
     password: str
 
 
+class RestoreEntry(BaseModel):
+    user_name: str
+    date: str
+    location: str
+    time_period: str | None = None
+    client: str | None = None
+    notes: str | None = None
+    extra: str | None = None
+    extra_note: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class RestoreEntriesRequest(BaseModel):
+    entries: list[RestoreEntry]
+
+
 class EntryResponse(SQLModel):
     id: int
     user_name: str

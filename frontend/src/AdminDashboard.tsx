@@ -1,4 +1,4 @@
-import { CSSProperties, Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react'
+import { CSSProperties, Dispatch, SetStateAction, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -204,7 +204,14 @@ function UserMultiSelect({
   )
 }
 
-export default function AdminDashboard({ teamMembers }: { teamMembers: string[] }) {
+export default function AdminDashboard({
+  teamMembers,
+  refreshKey = 0,
+}: {
+  teamMembers: string[]
+  // Bumped by the Admin tab after it changes data, to refetch entries
+  refreshKey?: number
+}) {
   const isNarrow = useIsNarrow()
   const [rawEntries, setRawEntries] = useState<AdminEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -240,9 +247,16 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     { label: 'All time', from: '', to: '' },
   ]
 
+  // A refreshKey bump (data changed elsewhere in the Admin tab) refetches in
+  // place; only a filter change swaps the dashboard for "Loading…", so a
+  // background refresh doesn't collapse the page and jump the scroll.
+  const lastRefreshKey = useRef(refreshKey)
+
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    const isBackgroundRefresh = refreshKey !== lastRefreshKey.current
+    lastRefreshKey.current = refreshKey
+    if (!isBackgroundRefresh) setLoading(true)
     setError('')
     getEntries(dateFrom || undefined, dateTo || thisFriday)
       .then((entries) => {
@@ -257,7 +271,7 @@ export default function AdminDashboard({ teamMembers }: { teamMembers: string[] 
     return () => {
       cancelled = true
     }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, refreshKey])
 
   const usersInData = useMemo(() => {
     const names = new Set(rawEntries.map((e) => e.user_name))

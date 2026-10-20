@@ -20,10 +20,13 @@ else:
         )
     DATABASE_URL = f"sqlite:///{db_path}"
 
-# PostgreSQL uses postgresql:// but Render provides postgres://
-# SQLModel/SQLAlchemy need postgresql:// so we need to convert
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Render provides postgres://, which SQLAlchemy doesn't accept. Name the driver
+# explicitly too: SQLAlchemy 2.1+ maps a bare postgresql:// to psycopg (v3),
+# but requirements.txt installs psycopg2, so a bare URL crashes on startup.
+for _prefix in ("postgres://", "postgresql://"):
+    if DATABASE_URL and DATABASE_URL.startswith(_prefix):
+        DATABASE_URL = DATABASE_URL.replace(_prefix, "postgresql+psycopg2://", 1)
+        break
 
 # Log database driver for observability
 db_driver = DATABASE_URL.split(":", 1)[0] if ":" in DATABASE_URL else "unknown"

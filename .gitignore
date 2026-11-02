@@ -81,3 +81,6 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Claude Code personal settings
+.claude/settings.local.json
